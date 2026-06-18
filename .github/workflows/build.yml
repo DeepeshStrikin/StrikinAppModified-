@@ -1,0 +1,64 @@
+name: Build Strikin app (web + APK)
+
+# Builds in the cloud on every push to main (and on-demand from the Actions tab),
+# so you never have to build on a low-memory laptop. Download the APK from the
+# run's "Artifacts", and grab the web build to deploy.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  API_URL: https://web-production-c154d.up.railway.app
+  WEB_URL: https://strikinappwebversion.netlify.app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.1
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release --dart-define=API_URL=$API_URL --dart-define=WEB_URL=$WEB_URL
+
+      - name: Build Android APK
+        run: flutter build apk --release --dart-define=API_URL=$API_URL --dart-define=WEB_URL=$WEB_URL
+
+      - name: Upload APK (download & install on your phone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: strikin-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload web build (drag this folder to Netlify)
+        uses: actions/upload-artifact@v4
+        with:
+          name: strikin-web
+          path: build/web
+
+      # Optional: auto-deploy the web app to Netlify. Add two repo secrets to enable:
+      #   NETLIFY_AUTH_TOKEN  (Netlify → User settings → Applications → New access token)
+      #   NETLIFY_SITE_ID     (Netlify → your site → Site settings → Site ID)
+      - name: Deploy web to Netlify
+        if: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+        continue-on-error: true
+        uses: nwtgck/actions-netlify@v3
+        with:
+          publish-dir: build/web
+          production-deploy: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
