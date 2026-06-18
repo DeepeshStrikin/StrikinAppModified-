@@ -28,10 +28,10 @@ jobs:
       - run: flutter pub get
 
       - name: Build web
-        run: flutter build web --release --dart-define=API_URL=https://web-production-c154d.up.railway.app --dart-define=WEB_URL=https://strikinappwebversion.netlify.app
+        run: flutter build web --release --dart-define=API_URL=https://web-production-c154d.up.railway.app --dart-define=WEB_URL=https://strikinwebapp.netlify.app
 
       - name: Build Android APK
-        run: flutter build apk --release --dart-define=API_URL=https://web-production-c154d.up.railway.app --dart-define=WEB_URL=https://strikinappwebversion.netlify.app
+        run: flutter build apk --release --dart-define=API_URL=https://web-production-c154d.up.railway.app --dart-define=WEB_URL=https://strikinwebapp.netlify.app
 
       - name: Upload APK (download & install on your phone)
         uses: actions/upload-artifact@v4
