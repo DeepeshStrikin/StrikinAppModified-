@@ -1,0 +1,53 @@
+name: strikin
+description: Strikin — book activities, earn rewards. Flutter app (Android, iOS, web).
+publish_to: "none"
+version: 1.0.13+14
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  qr_flutter: ^4.1.0
+  flutter_svg: ^2.0.10+1
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  share_plus: ^10.1.4
+  razorpay_flutter: ^1.3.7
+  webview_flutter: ^4.10.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  web:
+    generate: true
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon_fg.png"
+  min_sdk_android: 24
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/images/
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-ExtraBold.ttf
+          weight: 800
