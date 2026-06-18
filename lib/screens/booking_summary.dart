@@ -152,8 +152,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Status', style: T.caption),
-                  Tag(b.status.toUpperCase(),
-                      tone: b.status == 'upcoming' ? 'accent' : b.status == 'completed' ? 'success' : 'danger'),
+                  Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
                 ]),
               ],
             ),

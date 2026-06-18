@@ -3,6 +3,33 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
 
+/// Friendly label for a booking's status (shared by the list + summary screens).
+String bookingStatusLabel(String s) {
+  switch (s) {
+    case 'upcoming':
+      return 'CONFIRMED';
+    case 'pending_payment':
+      return 'PAY AT VENUE';
+    case 'completed':
+      return 'COMPLETED';
+    case 'cancelled':
+      return 'CANCELLED';
+    default:
+      return s.toUpperCase();
+  }
+}
+
+String bookingStatusTone(String s) {
+  switch (s) {
+    case 'completed':
+      return 'success';
+    case 'cancelled':
+      return 'danger';
+    default:
+      return 'accent'; // upcoming / pending_payment
+  }
+}
+
 /// A booking the user has actually made (kept per-user, persisted locally,
 /// also stored server-side in the cloud DB).
 class MyBooking {
@@ -130,7 +157,9 @@ class BookingStore extends ChangeNotifier {
   }
 
   /// Record a confirmed booking (called after the server returns success).
-  Future<void> recordBooking(BookingResult r) async {
+  /// Pass [status] to override the server's draft status — e.g. after an online
+  /// payment is verified the booking is 'upcoming', not 'pending_payment'.
+  Future<void> recordBooking(BookingResult r, {String? status}) async {
     myBookings.insert(
       0,
       MyBooking(
@@ -141,7 +170,7 @@ class BookingStore extends ChangeNotifier {
             : (bays.length == 1 ? bays.first.name : '${bays.length} ${bays.first.bayTier.toUpperCase()} bays'),
         date: date,
         time: time ?? '',
-        status: r.status,
+        status: status ?? r.status,
         qr: r.qrCode,
         pin: r.pin,
         amount: r.totalAmount,

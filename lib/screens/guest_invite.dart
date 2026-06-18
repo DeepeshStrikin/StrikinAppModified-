@@ -46,88 +46,6 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
   void _toast(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  /// Show the full order so the guest can add/remove items and adjust quantities
-  /// before paying. Payment only fires from the "Pay" button inside this sheet —
-  /// so a single tap never charges them by accident.
-  void _reviewAndPay() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surfaceAlt,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          final items = _cart.entries
-              .map((e) => MapEntry(_food.firstWhere((f) => f.id == e.key), e.value))
-              .toList();
-          void change(String id, int delta) {
-            final q = (_cart[id] ?? 0) + delta;
-            setState(() {
-              if (q <= 0) {
-                _cart.remove(id);
-              } else {
-                _cart[id] = q;
-              }
-            });
-            setSheet(() {});
-            if (_cart.isEmpty) Navigator.of(ctx).pop();
-          }
-
-          return Padding(
-            padding: EdgeInsets.only(
-              left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.lg,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Your order', style: T.h2),
-                const SizedBox(height: 4),
-                const Text('Add or remove items here, then pay once.', style: T.caption),
-                const SizedBox(height: AppSpacing.lg),
-                for (final e in items)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: Row(children: [
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(e.key.name, style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          Text(rupees(e.key.price * e.value), style: T.caption),
-                        ]),
-                      ),
-                      IconButton(
-                        onPressed: () => change(e.key.id, -1),
-                        icon: const Icon(Icons.remove_circle_outline, color: AppColors.text),
-                      ),
-                      Text('${e.value}', style: T.bodyStrong),
-                      IconButton(
-                        onPressed: () => change(e.key.id, 1),
-                        icon: Icon(Icons.add_circle, color: AppColors.primary),
-                      ),
-                    ]),
-                  ),
-                const Divider(color: AppColors.border, height: AppSpacing.xl),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  const Text('Total', style: T.bodyStrong),
-                  Text(rupees(_cartTotal), style: T.h3),
-                ]),
-                const SizedBox(height: AppSpacing.lg),
-                AppButton('Pay ${rupees(_cartTotal)}', onPressed: () {
-                  Navigator.of(ctx).pop();
-                  _submit();
-                }),
-                const SizedBox(height: AppSpacing.sm),
-                AppButton('Add more items', variant: 'secondary', onPressed: () => Navigator.of(ctx).pop()),
-                const SizedBox(height: AppSpacing.sm),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Future<void> _submit() async {
     if (_cart.isEmpty) return;
     setState(() => _submitting = true);
@@ -221,9 +139,9 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
               child: AppButton(
                 _submitting
                     ? 'Processing…'
-                    : 'Review order · $_cartCount item${_cartCount == 1 ? '' : 's'} · ${rupees(_cartTotal)}',
+                    : 'Pay ${rupees(_cartTotal)} · $_cartCount item${_cartCount == 1 ? '' : 's'}',
                 loading: _submitting,
-                onPressed: _submitting ? null : _reviewAndPay,
+                onPressed: _submitting ? null : _submit,
               ),
             ),
       child: Column(

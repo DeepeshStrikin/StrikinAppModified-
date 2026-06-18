@@ -18,8 +18,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return ListenableBuilder(
       listenable: BookingStore.instance,
       builder: (context, _) {
+        // Upcoming = anything not finished/cancelled (incl. pay-at-venue pending).
+        // History = completed or cancelled bookings.
         final list = BookingStore.instance.myBookings
-            .where((b) => _tab == 'upcoming' ? b.status == 'upcoming' : b.status != 'upcoming')
+            .where((b) => _tab == 'upcoming'
+                ? (b.status != 'completed' && b.status != 'cancelled')
+                : (b.status == 'completed' || b.status == 'cancelled'))
             .toList();
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -135,8 +139,7 @@ class _BookingCard extends StatelessWidget {
             children: [
               Expanded(child: Text(b.activity, style: T.h3, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: AppSpacing.sm),
-              Tag(b.status.toUpperCase(),
-                  tone: b.status == 'upcoming' ? 'accent' : b.status == 'completed' ? 'success' : 'danger'),
+              Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
             ],
           ),
           const SizedBox(height: 4),

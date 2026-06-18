@@ -129,7 +129,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
     }
 
-    await store.recordBooking(res);
+    // We only reach here on success (online payment verified, or pay-at-venue),
+    // so the booking is confirmed/upcoming — not the server's draft 'pending_payment'.
+    await store.recordBooking(res, status: 'upcoming');
     if (!mounted) return;
     setState(() => _busy = false);
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ConfirmationScreen(result: res)));
