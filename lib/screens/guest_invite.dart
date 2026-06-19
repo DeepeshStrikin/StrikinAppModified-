@@ -9,7 +9,7 @@ import '../widgets/ui.dart';
 
 /// Guest-facing screen opened from an invite link (?invite=TOKEN).
 /// Shows the booking the host made, and lets the guest add their own food
-/// (paid by the guest at the venue — postpaid).
+/// (paid by the guest — only their items, not the full booking amount).
 class GuestInviteScreen extends StatefulWidget {
   final String token;
   const GuestInviteScreen({super.key, required this.token});
@@ -24,6 +24,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
   final Map<String, int> _cart = {}; // foodId -> qty
   final _nameCtrl = TextEditingController();
   bool _loading = true, _submitting = false, _notFound = false;
+  bool _orderSuccess = false; // show success state after adding food
 
   @override
   void initState() {
@@ -48,18 +49,23 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
 
   Future<void> _submit() async {
     if (_cart.isEmpty) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      _toast('Please enter your name first');
+      return;
+    }
     setState(() => _submitting = true);
-    final guestName = _nameCtrl.text.trim().isEmpty ? 'Guest' : _nameCtrl.text.trim();
+    final guestName = _nameCtrl.text.trim();
     final items = _cart.entries
         .map((e) => CartFood(_food.firstWhere((f) => f.id == e.key), e.value))
         .toList();
 
-    // The guest pays for their own food online (web Razorpay) before it's added.
+    // Guest pays only for their own food items — not the full booking amount.
     final cfg = await Api.paymentsConfig();
     final payOnline = razorpayClientSupported && cfg['razorpay_enabled'] == true;
     String orderId = '', paymentId = '', signature = '';
 
     if (payOnline) {
+      // Only charge the guest's cart total — NOT the full booking amount.
       final order = await Api.createRazorpayOrder(_cartTotal, _booking!.bookingId);
       if (order == null) {
         if (!mounted) return;
@@ -95,11 +101,14 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
       if (updated != null) {
         _booking = updated;
         _cart.clear();
+        _orderSuccess = true; // show success banner
       }
     });
-    _toast(updated != null
-        ? 'Paid! Your food has been added to the booking.'
-        : 'Could not add food. Please try again.');
+    if (updated != null) {
+      _toast('Your food has been added to the booking!');
+    } else {
+      _toast('Could not add food. Please try again.');
+    }
   }
 
   double get _cartTotal => _cart.entries.fold(
@@ -136,12 +145,38 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           ? null
           : Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              child: AppButton(
-                _submitting
-                    ? 'Processing…'
-                    : 'Pay ${rupees(_cartTotal)} · $_cartCount item${_cartCount == 1 ? '' : 's'}',
-                loading: _submitting,
-                onPressed: _submitting ? null : _submit,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Clearly show guest pays ONLY their food
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 8),
+                    margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1AD6FD31),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 14, color: AppColors.primary),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'You only pay for your own food — not the full booking',
+                            style: TextStyle(fontSize: 12, color: AppColors.primary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AppButton(
+                    _submitting
+                        ? 'Processing…'
+                        : 'Add my food · ${rupees(_cartTotal)} ($_cartCount item${_cartCount == 1 ? '' : 's'})',
+                    loading: _submitting,
+                    onPressed: _submitting ? null : _submit,
+                  ),
+                ],
               ),
             ),
       child: Column(
@@ -153,6 +188,27 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           Text('${b.hostName} invited you', style: T.h1),
           const SizedBox(height: 4),
           const Text('View the booking and add your own food below.', style: T.caption),
+
+          // Success banner after adding food — encourages adding more
+          if (_orderSuccess) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: const Color(0x1A4CAF50),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: const Color(0x554CAF50)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.check_circle_outline, color: Color(0xFF4CAF50), size: 20),
+                const SizedBox(width: AppSpacing.sm),
+                const Expanded(
+                  child: Text('Your food was added! You can add more items below.',
+                      style: TextStyle(color: Color(0xFF4CAF50), fontSize: 13)),
+                ),
+              ]),
+            ),
+          ],
 
           const SizedBox(height: AppSpacing.lg),
           AppCard(
@@ -213,8 +269,10 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           const SizedBox(height: AppSpacing.xl),
           const Text('Add your food', style: T.h3),
           const SizedBox(height: 4),
-          const Text('Add everything you want — you pay once, online, at the end.',
-              style: TextStyle(color: AppColors.textFaint, fontSize: 12)),
+          const Text(
+            'Pick what you want — you only pay for your own items.',
+            style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+          ),
           const SizedBox(height: AppSpacing.md),
           ..._food.map(_foodRow),
         ],
