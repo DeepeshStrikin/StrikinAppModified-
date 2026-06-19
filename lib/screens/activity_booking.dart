@@ -60,11 +60,10 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
     setState(() {
       _selectedTier = tier;
       _showAllSlots = false;
-      _slots = []; // clear stale slots when switching tier
     });
     store.clearBay(); // start the new tier's selection fresh
     final inTier = _baysOfTier(tier);
-    // If the tier has just one bay, select it automatically and load slots.
+    // If the tier has just one bay, select it automatically.
     if (inTier.length == 1) {
       store.toggleBay(inTier.first);
       _loadSlots();
@@ -98,7 +97,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
           itemBuilder: (c, i) {
             final sel = store.isBaySelected(bays[i].id);
             return GestureDetector(
-              onTap: () { store.toggleBay(bays[i]); setState(() { _showAllSlots = false; _slots = []; }); _loadSlots(); },
+              onTap: () { store.toggleBay(bays[i]); setState(() => _showAllSlots = false); _loadSlots(); },
               child: Container(
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
@@ -192,10 +191,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
 
   void _loadSlots() {
     if (store.bay != null) {
-      setState(() => _slots = []); // clear stale slots immediately
-      Api.getSlots(store.bay!.id, store.date).then((s) {
-        if (mounted) setState(() => _slots = s);
-      });
+      Api.getSlots(store.bay!.id, store.date).then((s) => setState(() => _slots = s));
     }
   }
 
@@ -243,7 +239,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
   }
 
   Widget _timeGrid(BookingStore store) {
-    const previewCount = 9;
+    const previewCount = 5;
     final hasMore = _slots.length > previewCount;
     final shown = (_showAllSlots || !hasMore) ? _slots.length : previewCount;
 
@@ -335,11 +331,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                                   final d = _days[i];
                                   final active = _iso(d) == store.date;
                                   return GestureDetector(
-                                    onTap: () {
-                                      store.setDate(_iso(d));
-                                      setState(() { _slots = []; _showAllSlots = false; });
-                                      _loadSlots();
-                                    },
+                                    onTap: () { store.setDate(_iso(d)); _loadSlots(); },
                                     child: Container(
                                       width: 60,
                                       decoration: BoxDecoration(
@@ -440,11 +432,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                                     child: GestureDetector(
-                                      onTap: () {
-                                        store.toggleBay(b);
-                                        setState(() { _showAllSlots = false; _slots = []; });
-                                        _loadSlots();
-                                      },
+                                      onTap: () { store.toggleBay(b); setState(() => _showAllSlots = false); _loadSlots(); },
                                       child: AppCard(
                                         padding: const EdgeInsets.all(AppSpacing.md),
                                         borderColor: active ? AppColors.primary : AppColors.borderSubtle,
@@ -521,18 +509,10 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                               const SizedBox(height: AppSpacing.lg),
                               const Text('Select time', style: T.h3),
                               const SizedBox(height: 4),
-                              const Text('Slots are live — taken times are greyed out',
+                              const Text('30-min slots · 15-min buffer applied automatically',
                                   style: TextStyle(color: AppColors.textFaint, fontSize: 13)),
                               const SizedBox(height: AppSpacing.md),
-                              if (_slots.isEmpty)
-                                const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 20),
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                )
-                              else
-                                _timeGrid(store),
+                              _timeGrid(store),
                             ],
                           ],
                         ),
