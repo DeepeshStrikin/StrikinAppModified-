@@ -17,6 +17,8 @@ class Api {
   // Writes (booking, invite, payment) must reach the server — wait longer so they
   // never silently fall back to a fake local result.
   static const _writeTimeout = Duration(seconds: 25);
+  // Payment operations need extra time — backend retries Razorpay up to 3x
+  static const _paymentTimeout = Duration(seconds: 75);
 
   /// On web, route images through the backend proxy (fixes CORS). On native
   /// (Android/iOS) load them directly — no proxy, so images don't depend on the
@@ -137,7 +139,7 @@ class Api {
           .post(Uri.parse('$baseUrl/payments/razorpay/order'),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'amount': amount, 'booking_id': bookingId}))
-          .timeout(_writeTimeout);
+          .timeout(_paymentTimeout); // longer timeout — backend retries up to 3x
       if (res.statusCode != 200) return null;
       return Map<String, dynamic>.from(jsonDecode(res.body));
     } catch (_) {
