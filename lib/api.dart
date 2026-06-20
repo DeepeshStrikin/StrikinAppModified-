@@ -35,10 +35,15 @@ class Api {
       if (b.host == 'localhost' || b.host == '127.0.0.1') {
         return 'http://localhost:8000';
       }
-      // Production: same-origin (backend serves the app).
-      return b.origin;
+      // Production: the web app is hosted on Netlify, but the API lives on Railway —
+      // a DIFFERENT origin. Point there explicitly (not same-origin) so the deployed
+      // site hits the real backend instead of falling back to mock data.
+      return 'https://web-production-c154d.up.railway.app';
     }
-    return 'http://192.168.1.26:8000';
+    // Native fallback: the live production backend, so a release APK built without
+    // any --dart-define still reaches the real server instead of a dead LAN IP.
+    // For local device testing, pass --dart-define=API_URL=http://<your-pc-ip>:8000.
+    return 'https://web-production-c154d.up.railway.app';
   }
 
   static Future<T> _get<T>(String path, T fallback, T Function(dynamic) parse) async {
@@ -132,13 +137,16 @@ class Api {
         (d) => Map<String, dynamic>.from(d),
       );
 
-  /// Create a Razorpay order for a booking. Returns {id, amount, ...} or null.
-  static Future<Map<String, dynamic>?> createRazorpayOrder(double amount, String bookingId) async {
+  /// Create a Razorpay order. Returns {id, amount, ...} or null.
+  /// kind="booking": the backend charges the booking total (client amount ignored).
+  /// kind="guest_food": a guest paying for their own food cart; `amount` is used.
+  static Future<Map<String, dynamic>?> createRazorpayOrder(double amount, String bookingId,
+      {String kind = 'booking'}) async {
     try {
       final res = await http
           .post(Uri.parse('$baseUrl/payments/razorpay/order'),
               headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'amount': amount, 'booking_id': bookingId}))
+              body: jsonEncode({'amount': amount, 'booking_id': bookingId, 'kind': kind}))
           .timeout(_paymentTimeout); // longer timeout — backend retries up to 3x
       if (res.statusCode != 200) return null;
       return Map<String, dynamic>.from(jsonDecode(res.body));

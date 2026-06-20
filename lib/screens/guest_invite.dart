@@ -66,7 +66,8 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
 
     if (payOnline) {
       // Only charge the guest's cart total — NOT the full booking amount.
-      final order = await Api.createRazorpayOrder(_cartTotal, _booking!.bookingId);
+      final order = await Api.createRazorpayOrder(_cartTotal, _booking!.bookingId,
+          kind: 'guest_food');
       if (order == null) {
         if (!mounted) return;
         setState(() => _submitting = false);
@@ -148,7 +149,8 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Clearly show guest pays ONLY their food
+                  // Reminder that they can keep adding before paying, and only
+                  // pay for their own items.
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 8),
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -162,7 +164,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'You only pay for your own food — not the full booking',
+                            'Add more items above if you like — you only pay for your own food, all at once.',
                             style: TextStyle(fontSize: 12, color: AppColors.primary),
                           ),
                         ),
@@ -172,7 +174,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
                   AppButton(
                     _submitting
                         ? 'Processing…'
-                        : 'Add my food · ${rupees(_cartTotal)} ($_cartCount item${_cartCount == 1 ? '' : 's'})',
+                        : 'Pay ${rupees(_cartTotal)} · $_cartCount item${_cartCount == 1 ? '' : 's'}',
                     loading: _submitting,
                     onPressed: _submitting ? null : _submit,
                   ),
@@ -270,7 +272,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           const Text('Add your food', style: T.h3),
           const SizedBox(height: 4),
           const Text(
-            'Pick what you want — you only pay for your own items.',
+            'Tap "Add" on as many items as you like — then pay once with the button below. You only pay for your own items.',
             style: TextStyle(color: AppColors.textFaint, fontSize: 12),
           ),
           const SizedBox(height: AppSpacing.md),

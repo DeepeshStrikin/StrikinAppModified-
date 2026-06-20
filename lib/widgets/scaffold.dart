@@ -42,7 +42,13 @@ class AppScaffold extends StatelessWidget {
           ? null
           : SafeArea(
               top: false,
-              child: Center(
+              // heightFactor: 1 makes this shrink-wrap to the bar's own height.
+              // Without it, Center/Align expands to fill the available height,
+              // which steals all the space from the scrollable body (leaving the
+              // page blank with only the bar visible).
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                heightFactor: 1,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 480),
                   child: bottomBar,
