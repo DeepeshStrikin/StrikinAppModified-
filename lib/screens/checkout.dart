@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../models.dart';
 import '../razorpay_checkout.dart';
 import '../store.dart';
 import '../theme.dart';
@@ -26,6 +27,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _email = TextEditingController();
   DateTime? _dob;
   bool _busy = false;
+  // Store the booking ID so retries reuse the same booking instead of creating
+  // a new one (which causes 409 Conflict on the slot).
+  String? _pendingBookingId;
 
   Future<void> _pickDob() async {
     final now = DateTime.now();
@@ -63,32 +67,43 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _busy = true);
 
     // Pay online via Razorpay when requested.
-    // Always fetch config to get key_id. On web, also checks razorpay_enabled flag.
-    // On mobile (stub), razorpayClientSupported is always true so we skip the enabled check.
     Map<String, dynamic> cfg = {};
     bool payOnline = false;
     if (online) {
       cfg = await Api.paymentsConfig();
-      // ignore: avoid_print
-      print('DEBUG baseUrl: ${Api.baseUrl}');
-      // ignore: avoid_print
-      print('DEBUG paymentsConfig: $cfg');
       payOnline = cfg['razorpay_enabled'] == true;
-      // ignore: avoid_print
-      print('DEBUG payOnline: $payOnline, razorpayClientSupported: $razorpayClientSupported');
     }
 
-    final res = await Api.createBooking(
-      activityId: store.activity!.id,
-      bays: store.bays,
-      date: store.date,
-      time: store.time!,
-      players: store.players,
-      food: store.food,
-      guestName: _name.text.trim(),
-      guestPhone: _phone.text.trim(),
-      payOnline: payOnline,
-    );
+    // Reuse an existing pending booking on retry — avoids 409 Conflict when the
+    // first booking was created but payment failed (slot stays held for this booking).
+    BookingResult res;
+    if (_pendingBookingId != null) {
+      // Reconstruct a minimal result to continue with payment
+      res = BookingResult(
+        id: _pendingBookingId!,
+        qrCode: '',
+        pin: '',
+        status: 'pending_payment',
+        totalAmount: store.grandTotal,
+        loyaltyEarned: 0,
+      );
+    } else {
+      res = await Api.createBooking(
+        activityId: store.activity!.id,
+        bays: store.bays,
+        date: store.date,
+        time: store.time!,
+        players: store.players,
+        food: store.food,
+        guestName: _name.text.trim(),
+        guestPhone: _phone.text.trim(),
+        payOnline: payOnline,
+      );
+      if (payOnline) {
+        // Store booking ID so if payment fails, next tap reuses this booking
+        _pendingBookingId = res.id;
+      }
+    }
 
     if (payOnline) {
       final order = await Api.createRazorpayOrder(store.grandTotal, res.id);
@@ -112,7 +127,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (result == null) {
         if (!mounted) return;
         setState(() => _busy = false);
-        _toast('Payment cancelled.');
+        _toast('Payment cancelled. Tap "Pay" to try again.');
         return;
       }
       final verified = await Api.verifyPayment(
@@ -124,10 +139,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (!verified) {
         if (!mounted) return;
         setState(() => _busy = false);
-        _toast('Payment could not be verified.');
+        _toast('Payment could not be verified. Please try again.');
         return;
       }
     }
+
+    // Success — clear pending booking ID and go to confirmation
+    _pendingBookingId = null;
 
     // We only reach here on success (online payment verified, or pay-at-venue),
     // so the booking is confirmed/upcoming — not the server's draft 'pending_payment'.

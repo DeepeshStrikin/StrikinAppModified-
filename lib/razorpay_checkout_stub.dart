@@ -7,6 +7,16 @@ import 'razorpay_checkout.dart';
 
 bool get razorpayClientSupportedImpl => true;
 
+// Held at module level so it's not garbage-collected before callbacks fire.
+Razorpay? _activeRazorpay;
+Completer<RazorpayResult?>? _activeCompleter;
+
+void _cleanUp() {
+  _activeRazorpay?.clear();
+  _activeRazorpay = null;
+  _activeCompleter = null;
+}
+
 Future<RazorpayResult?> openRazorpayCheckoutImpl({
   required String keyId,
   required String orderId,
@@ -18,8 +28,17 @@ Future<RazorpayResult?> openRazorpayCheckoutImpl({
   String bookingId = '',
   String method = 'upi',
 }) async {
+  // Cancel any previous checkout that didn't complete.
+  if (_activeCompleter != null && !_activeCompleter!.isCompleted) {
+    _activeCompleter!.complete(null);
+  }
+  _cleanUp();
+
   final completer = Completer<RazorpayResult?>();
+  _activeCompleter = completer;
+
   final razorpay = Razorpay();
+  _activeRazorpay = razorpay; // keep alive until callbacks fire
 
   razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, (PaymentSuccessResponse response) {
     if (!completer.isCompleted) {
@@ -29,17 +48,17 @@ Future<RazorpayResult?> openRazorpayCheckoutImpl({
         response.signature ?? '',
       ));
     }
-    razorpay.clear();
+    _cleanUp();
   });
 
   razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, (PaymentFailureResponse response) {
     if (!completer.isCompleted) completer.complete(null);
-    razorpay.clear();
+    _cleanUp();
   });
 
   razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, (ExternalWalletResponse response) {
     if (!completer.isCompleted) completer.complete(null);
-    razorpay.clear();
+    _cleanUp();
   });
 
   try {
@@ -54,12 +73,14 @@ Future<RazorpayResult?> openRazorpayCheckoutImpl({
         'name': name,
         'email': email,
         'contact': contact,
-        'method': method, // pre-selects UPI/card on the native sheet
+        'method': method,
       },
       'theme': {'color': '#D6FD31'},
+      'send_sms_hash': true,
+      'remember_customer': false,
     });
   } catch (_) {
-    razorpay.clear();
+    _cleanUp();
     if (!completer.isCompleted) completer.complete(null);
   }
 
