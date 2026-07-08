@@ -11,7 +11,7 @@ String bookingStatusLabel(String s) {
     case 'pending_payment':
       return 'PAY AT VENUE';
     case 'completed':
-      return 'COMPLETED';
+      return 'SESSION FINISHED';
     case 'cancelled':
       return 'CANCELLED';
     default:
@@ -37,6 +37,7 @@ class MyBooking {
   final double amount;
   final int loyalty;
   final int createdAtMs;
+  final String image; // bay image (relative path, resolve via Api.img)
   MyBooking({
     required this.id,
     required this.activity,
@@ -49,21 +50,87 @@ class MyBooking {
     required this.amount,
     required this.loyalty,
     required this.createdAtMs,
+    this.image = '',
   });
   Map<String, dynamic> toJson() => {
         'id': id, 'activity': activity, 'bay': bay, 'date': date, 'time': time,
         'status': status, 'qr': qr, 'pin': pin, 'amount': amount, 'loyalty': loyalty,
-        'createdAtMs': createdAtMs,
+        'createdAtMs': createdAtMs, 'image': image,
       };
   factory MyBooking.fromJson(Map<String, dynamic> j) => MyBooking(
         id: j['id'], activity: j['activity'], bay: j['bay'], date: j['date'], time: j['time'],
         status: j['status'], qr: j['qr'], pin: j['pin'],
         amount: (j['amount'] as num).toDouble(), loyalty: (j['loyalty'] as num).toInt(),
-        createdAtMs: j['createdAtMs'] ?? 0,
+        createdAtMs: j['createdAtMs'] ?? 0, image: (j['image'] ?? '').toString(),
       );
+
+  /// Map a booking row from the vendor backend (`GET /bookings/list` or `/bookings/{id}`).
+  factory MyBooking.fromServer(Map<String, dynamic> j) {
+    final items = (j['items'] as List?) ?? const [];
+    final first = items.isNotEmpty ? items.first as Map : null;
+    var activity = 'Activity', bayName = 'Bay', bayTier = '', time = '', image = '';
+    if (first != null) {
+      final bay = first['bay'];
+      if (bay is Map) {
+        bayName = (bay['name'] ?? 'Bay').toString();
+        bayTier = (bay['bayTier'] ?? '').toString();
+        final at = bay['activityType'];
+        if (at is Map) activity = (at['name'] ?? 'Activity').toString();
+        final imgs = bay['images'];
+        if (imgs is List && imgs.isNotEmpty) image = imgs.first.toString();
+      }
+      time = _hhmm(first['slotTime']);
+    }
+    final bayLabel = items.length <= 1
+        ? bayName
+        : '${items.length} ${bayTier.isEmpty ? '' : '${bayTier.toUpperCase()} '}bays';
+    final date = (j['bookingDate'] ?? '').toString();
+    return MyBooking(
+      id: (j['id'] ?? '').toString(),
+      activity: activity,
+      bay: bayLabel,
+      date: date.length >= 10 ? date.substring(0, 10) : date,
+      time: time,
+      status: (j['status'] ?? 'upcoming').toString(),
+      qr: (j['qrCode'] ?? '').toString(),
+      pin: '',
+      amount: toDouble(j['totalAmount']),
+      loyalty: 0,
+      createdAtMs: _parseMs(j['createdAt']),
+      image: image,
+    );
+  }
+}
+
+/// "1970-01-01T15:30:00.000Z" (or "15:30:00") → "15:30"
+String _hhmm(dynamic v) {
+  final s = (v ?? '').toString();
+  final t = s.contains('T') ? s.split('T').last : s;
+  return t.length >= 5 ? t.substring(0, 5) : t;
+}
+
+int _parseMs(dynamic v) {
+  try {
+    return DateTime.parse(v.toString()).millisecondsSinceEpoch;
+  } catch (_) {
+    return 0;
+  }
 }
 
 /// In-progress booking draft + the user's real bookings & loyalty. Global singleton.
+/// One activity's full selection, held in the multi-activity cart.
+class CartLeg {
+  final ActivityType activity;
+  final List<Bay> bays;
+  final String date, time;
+  final int players;
+  final List<CartFood> food;
+  CartLeg({required this.activity, required this.bays, required this.date, required this.time, required this.players, required this.food});
+  double get bayTotal => bays.fold(0.0, (s, b) => s + b.pricePerSession);
+  double get foodTotal => food.fold(0.0, (s, f) => s + f.item.price * f.quantity);
+  double get total => bayTotal + foodTotal;
+}
+
 class BookingStore extends ChangeNotifier {
   static final BookingStore instance = BookingStore._();
   BookingStore._();
@@ -75,6 +142,12 @@ class BookingStore extends ChangeNotifier {
   final List<Bay> bays = []; // selected bays (one tier, can be multiple)
   String? time;
   final List<CartFood> food = [];
+
+  // ---- multi-activity cart: previously-configured activities in this order ----
+  final List<CartLeg> cart = [];
+  double get cartTotal => cart.fold(0.0, (s, l) => s + l.total);
+  /// All configured activities' total (cart legs + the current selection).
+  double get combinedTotal => cartTotal + grandTotal;
 
   /// First selected bay — used for slot loading and single-name display.
   Bay? get bay => bays.isEmpty ? null : bays.first;
@@ -116,6 +189,64 @@ class BookingStore extends ChangeNotifier {
     notifyListeners();
   }
   void clearBay() { bays.clear(); time = null; food.clear(); notifyListeners(); }
+
+  /// Snapshot the current activity selection into the cart, then reset the
+  /// current selection so the user can configure another activity.
+  bool addCurrentToCart() {
+    if (activity == null || bays.isEmpty || time == null) return false;
+    cart.add(CartLeg(
+      activity: activity!,
+      bays: List.of(bays),
+      date: date,
+      time: time!,
+      players: players,
+      food: food.map((f) => CartFood(f.item, f.quantity)).toList(),
+    ));
+    activity = null;
+    bays.clear();
+    time = null;
+    players = 4;
+    food.clear();
+    notifyListeners();
+    return true;
+  }
+
+  void clearCart() { cart.clear(); notifyListeners(); }
+
+  /// Combined /bookings items[] from every cart leg + the current selection.
+  List<Map<String, dynamic>> buildAllItems() {
+    final items = <Map<String, dynamic>>[];
+    void addLeg(List<Bay> bs, String d, String? t, int pl) {
+      if (bs.isEmpty || t == null) return;
+      final n = bs.length;
+      final per = n == 0 ? pl : (pl ~/ n);
+      final extra = pl - per * n;
+      for (var i = 0; i < n; i++) {
+        var np = per + (i < extra ? 1 : 0);
+        if (np < 1) np = 1;
+        items.add({'bayId': bs[i].id, 'numPlayers': np, 'itemAmount': bs[i].pricePerSession, 'slotDate': d, 'slotTime': t});
+      }
+    }
+    for (final leg in cart) {
+      addLeg(leg.bays, leg.date, leg.time, leg.players);
+    }
+    addLeg(bays, date, time, players);
+    return items;
+  }
+
+  /// Combined foodOrders[] from every cart leg + the current selection.
+  List<Map<String, dynamic>> buildAllFood() {
+    final all = <CartFood>[...cart.expand((l) => l.food), ...food];
+    return all
+        .map((f) => {
+              'restroworksItemId': f.item.id,
+              'restroworksItemName': f.item.name,
+              'restroworksItemPrice': f.item.price,
+              'quantity': f.quantity,
+              'itemTotal': f.item.price * f.quantity,
+            })
+        .toList();
+  }
 
   /// Mark a saved booking as cancelled locally (after the server confirms).
   void cancelLocal(String id) {
@@ -182,6 +313,29 @@ class BookingStore extends ChangeNotifier {
     await _persist();
   }
 
+  /// Insert an already-built booking row (used by flows that don't go through the
+  /// bay/slot draft, e.g. Mega Screen seat bookings). De-dupes by id.
+  Future<void> recordBookingRow(MyBooking b) async {
+    myBookings.removeWhere((x) => x.id == b.id);
+    myBookings.insert(0, b);
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Merge server-fetched bookings (source of truth for confirmed bookings) with any
+  /// local-only ones not yet returned by the server (e.g. a booking just made).
+  void mergeServerBookings(List<MyBooking> server) {
+    final serverIds = server.map((b) => b.id).toSet();
+    final localOnly = myBookings.where((b) => !serverIds.contains(b.id)).toList();
+    myBookings
+      ..clear()
+      ..addAll(server)
+      ..addAll(localOnly);
+    myBookings.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    notifyListeners();
+    _persist();
+  }
+
   // ---- per-user persistence ----
   Future<void> loadForUser(String key) async {
     _userKey = key;
@@ -218,6 +372,7 @@ class BookingStore extends ChangeNotifier {
     bays.clear();
     time = null;
     food.clear();
+    cart.clear();
     notifyListeners();
   }
 }

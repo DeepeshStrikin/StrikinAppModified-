@@ -27,6 +27,29 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Invite deep link (custom scheme) — always opens the app.
+                 e.g. strikin://join/<token>  or  strikin://invite?token=<token>
+                 Used for dev/testing and for share links we control. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="strikin"/>
+            </intent-filter>
+            <!-- Android App Links: a verified https invite link opens the app if
+                 installed, otherwise the web page. autoVerify requires
+                 /.well-known/assetlinks.json hosted on the domain (add the release
+                 keystore SHA-256 there once the site is deployed). Restricted to
+                 /join so the rest of strikin.com still opens in the browser. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="strikin.com" android:pathPrefix="/join"/>
+                <data android:scheme="https" android:host="www.strikin.com" android:pathPrefix="/join"/>
+                <data android:scheme="http" android:host="strikin.com" android:pathPrefix="/join"/>
+                <data android:scheme="http" android:host="www.strikin.com" android:pathPrefix="/join"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

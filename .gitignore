@@ -51,3 +51,9 @@ app.*.map.json
 /android/local.properties
 /android/**/hs_err_pid*.log
 /android/**/replay_pid*.log
+
+# Release signing — NEVER commit these (losing the keystore = can't update the app)
+/android/key.properties
+**/*.jks
+**/*.keystore
+**/*.p12

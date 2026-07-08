@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../app_image.dart';
+import '../app_nav.dart';
 import '../auth.dart';
 import '../models.dart';
 import '../store.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
 import 'activity_booking.dart';
-import 'corporate.dart';
+import 'corporate_cx.dart';
 import 'info_screens.dart';
+import 'shows.dart';
 
 const _heroImg =
     'https://cdn.sanity.io/images/y370h02s/production/6624398bde2b524e87d266a0c255324e341a611f-1920x1080.png?w=1200&q=75';
@@ -22,13 +24,28 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<ActivityType> _activities = [];
+  List<Map<String, dynamic>> _trending = [];
   final _scroll = ScrollController();
   final _activitiesKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    Api.getActivities().then((a) => setState(() => _activities = a));
+    Api.getActivities().then((a) {
+      if (mounted) setState(() => _activities = a);
+    });
+    Api.getTrending().then((d) {
+      if (!mounted) return;
+      setState(() => _trending = ((d['topBays'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList());
+    });
+  }
+
+  ActivityType? _findActivity(Map<String, dynamic> t) {
+    final name = (t['activityName'] ?? '').toString().toLowerCase();
+    for (final a in _activities) {
+      if (a.name.toLowerCase() == name) return a;
+    }
+    return null;
   }
 
   @override
@@ -39,7 +56,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _open(ActivityType a) {
     BookingStore.instance.setActivity(a);
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ActivityBookingScreen()));
+    // The Mega Screen books by show + individual seat (not bay/slot).
+    final s = '${a.slug} ${a.name}'.toLowerCase();
+    final isScreen = s.contains('mega-screen') || s.contains('mega screen') || s.contains('screen');
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => isScreen ? const ShowsScreen() : const ActivityBookingScreen(),
+    ));
   }
 
   void _scrollToActivities() {
@@ -121,6 +143,49 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
 
+                        // Trending now
+                        if (_trending.isNotEmpty) ...[
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.md),
+                            child: Text('Trending now', style: T.h2),
+                          ),
+                          SizedBox(
+                            height: 156,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                              itemCount: _trending.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.md),
+                              itemBuilder: (_, i) {
+                                final t = _trending[i];
+                                final imgs = (t['images'] as List?) ?? [];
+                                // Fall back to the activity's image when the bay has none.
+                                final img = imgs.isNotEmpty ? imgs.first.toString() : (_findActivity(t)?.image ?? '');
+                                return GestureDetector(
+                                  onTap: () {
+                                    final a = _findActivity(t);
+                                    if (a != null) _open(a);
+                                  },
+                                  child: SizedBox(
+                                    width: 200,
+                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(AppRadius.md),
+                                        child: img.isNotEmpty
+                                            ? Image(image: appImg(img), width: 200, height: 100, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(width: 200, height: 100, color: AppColors.surfaceElevated))
+                                            : Container(width: 200, height: 100, color: AppColors.surfaceElevated),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text('${t['activityName'] ?? ''} · ${t['bayName'] ?? ''}', style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                      Text('${t['bookingCount'] ?? 0} booked recently', style: T.caption),
+                                    ]),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+
                         // Activities
                         Padding(
                           key: _activitiesKey,
@@ -161,7 +226,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         Padding(
                           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xl),
                           child: AppCard(
-                            borderColor: AppColors.primary,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -178,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ]),
                                 const SizedBox(height: AppSpacing.md),
                                 AppButton('Explore corporate', variant: 'secondary',
-                                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CorporateScreen()))),
+                                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxLandingScreen()))),
                               ],
                             ),
                           ),
@@ -196,6 +260,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// Guest logging out from the drawer — warn first (they lose booking access).
+Future<void> _guestLogoutWithWarning() async {
+  final ctx = navigatorKey.currentContext;
+  if (ctx == null) {
+    AuthState.instance.logout();
+    return;
+  }
+  final ok = await showDialog<bool>(
+    context: ctx,
+    builder: (c) => AlertDialog(
+      backgroundColor: AppColors.surfaceAlt,
+      title: const Text('Log out as guest?', style: TextStyle(color: AppColors.text)),
+      content: const Text(
+        "You booked as a guest. Logging out loses access to your bookings & QR here in the app. Create an account first to keep them.",
+        style: TextStyle(color: AppColors.textMuted),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Stay')),
+        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Log out anyway', style: TextStyle(color: AppColors.danger))),
+      ],
+    ),
+  );
+  if (ok == true) AuthState.instance.logout();
+}
+
 class _StrikinDrawer extends StatelessWidget {
   const _StrikinDrawer();
 
@@ -203,36 +292,60 @@ class _StrikinDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     void go(Widget screen) =>
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
-    final items = <(IconData, String, VoidCallback)>[
-      (Icons.person_outline, 'Login / Sign up', () => AuthState.instance.logout()),
-      (Icons.star_outline, 'Attractions', () => go(const AttractionsScreen())),
-      (Icons.info_outline, 'About us', () => go(const AboutScreen())),
-      (Icons.description_outlined, 'Blogs', () => go(const BlogsScreen())),
-      (Icons.work_outline, 'Corporate booking', () => go(const CorporateScreen())),
-      (Icons.headset_mic_outlined, 'Support', () => go(const SupportScreen())),
-    ];
-    return Drawer(
-      backgroundColor: AppColors.surfaceAlt,
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(AppSpacing.xl),
-              child: Text('STRIKIN',
-                  style: TextStyle(color: AppColors.text, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 3)),
+    return ListenableBuilder(
+      listenable: AuthState.instance,
+      builder: (context, _) {
+        final user = AuthState.instance.user;
+        final loggedIn = user != null && user.isGuest == false;
+        // Account row: a clear "Log out" for real accounts; "Log in / Sign up"
+        // (which drops the guest session and returns to login) otherwise.
+        final accountItem = loggedIn
+            ? (Icons.logout, 'Log out', () => AuthState.instance.logout())
+            : (Icons.login, 'Log in / Sign up', _guestLogoutWithWarning);
+        final items = <(IconData, String, VoidCallback)>[
+          (Icons.star_outline, 'Attractions', () => go(const AttractionsScreen())),
+          (Icons.info_outline, 'About us', () => go(const AboutScreen())),
+          (Icons.description_outlined, 'Blogs', () => go(const BlogsScreen())),
+          (Icons.work_outline, 'Corporate', () => go(const CxLandingScreen())),
+          (Icons.headset_mic_outlined, 'Support', () => go(const SupportScreen())),
+          accountItem,
+        ];
+        return Drawer(
+          backgroundColor: AppColors.surfaceAlt,
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('STRIKIN',
+                          style: TextStyle(color: AppColors.text, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 3)),
+                      const SizedBox(height: 4),
+                      Text(
+                        loggedIn
+                            ? 'Signed in as ${user.name ?? user.email ?? 'you'}'
+                            : (user?.isGuest == true ? 'Browsing as guest' : 'Not signed in'),
+                        style: T.caption,
+                      ),
+                    ],
+                  ),
+                ),
+                ...items.map((it) => ListTile(
+                      leading: Icon(it.$1, color: AppColors.text),
+                      title: Text(it.$2, style: T.bodyStrong),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        it.$3();
+                      },
+                    )),
+              ],
             ),
-            ...items.map((it) => ListTile(
-                  leading: Icon(it.$1, color: AppColors.text),
-                  title: Text(it.$2, style: T.bodyStrong),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    it.$3();
-                  },
-                )),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

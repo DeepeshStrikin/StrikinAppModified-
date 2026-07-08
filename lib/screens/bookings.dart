@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../api.dart';
+import '../app_image.dart';
 import '../store.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
@@ -12,6 +14,19 @@ class BookingsScreen extends StatefulWidget {
 
 class _BookingsScreenState extends State<BookingsScreen> {
   String _tab = 'upcoming';
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  /// Pull confirmed bookings from the server (source of truth) and merge them in.
+  Future<void> _sync() async {
+    final rows = await Api.listBookings();
+    if (!mounted) return;
+    BookingStore.instance.mergeServerBookings(rows.map((e) => MyBooking.fromServer(e)).toList());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,18 +79,29 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                       Expanded(
-                        child: list.isEmpty
-                            ? _EmptyState(tab: _tab)
-                            : ListView.separated(
-                                padding: const EdgeInsets.only(bottom: AppSpacing.xxxl),
-                                itemCount: list.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
-                                itemBuilder: (ctx, i) => GestureDetector(
-                                  onTap: () => Navigator.of(ctx).push(
-                                      MaterialPageRoute(builder: (_) => BookingSummaryScreen(booking: list[i]))),
-                                  child: _BookingCard(b: list[i]),
+                        child: RefreshIndicator(
+                          color: AppColors.primary,
+                          onRefresh: _sync,
+                          child: list.isEmpty
+                              ? ListView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  children: [
+                                    const SizedBox(height: 80),
+                                    _EmptyState(tab: _tab),
+                                  ],
+                                )
+                              : ListView.separated(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.only(bottom: AppSpacing.xxxl),
+                                  itemCount: list.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+                                  itemBuilder: (ctx, i) => GestureDetector(
+                                    onTap: () => Navigator.of(ctx).push(
+                                        MaterialPageRoute(builder: (_) => BookingSummaryScreen(booking: list[i]))),
+                                    child: _BookingCard(b: list[i]),
+                                  ),
                                 ),
-                              ),
+                        ),
                       ),
                     ],
                   ),
@@ -135,15 +161,39 @@ class _BookingCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: Text(b.activity, style: T.h3, overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: AppSpacing.sm),
-              Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
+              if (b.image.isNotEmpty) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: Image(
+                    image: appImg(b.image),
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(width: 60, height: 60, color: AppColors.surfaceElevated),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(b.activity, style: T.h3, overflow: TextOverflow.ellipsis)),
+                        const SizedBox(width: AppSpacing.sm),
+                        Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('${b.bay} · ${b.date} · ${b.time}', style: T.caption),
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text('${b.bay} · ${b.date} · ${b.time}', style: T.caption),
           const Divider(color: AppColors.border, height: AppSpacing.xl),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -152,7 +202,7 @@ class _BookingCard extends StatelessWidget {
               Row(children: [
                 Icon(Icons.qr_code, size: 16, color: AppColors.primary),
                 const SizedBox(width: 6),
-                Text('PIN ${b.pin}', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                Text(b.pin.isNotEmpty ? 'PIN ${b.pin}' : 'QR', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
               ]),
             ],
           ),

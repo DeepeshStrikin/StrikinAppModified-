@@ -23,6 +23,8 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
   List<FoodItem> _food = [];
   final Map<String, int> _cart = {}; // foodId -> qty
   final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  String? _inviteJoinId; // set once the guest has joined the invite
   bool _loading = true, _submitting = false, _notFound = false;
   bool _orderSuccess = false; // show success state after adding food
 
@@ -47,69 +49,96 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
   void _toast(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
+  void _failGuest(String msg) {
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    _toast(msg);
+  }
+
+  /// Guest flow against the vendor backend: join (once) → add each food item →
+  /// pay (only if the host requires guests to pay for their own food).
   Future<void> _submit() async {
     if (_cart.isEmpty) return;
     if (_nameCtrl.text.trim().isEmpty) {
       _toast('Please enter your name first');
       return;
     }
+    final phoneDigits = _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
+    if (phoneDigits.length != 10) {
+      _toast('Please enter a valid 10-digit mobile number');
+      return;
+    }
     setState(() => _submitting = true);
     final guestName = _nameCtrl.text.trim();
-    final items = _cart.entries
-        .map((e) => CartFood(_food.firstWhere((f) => f.id == e.key), e.value))
-        .toList();
 
-    // Guest pays only for their own food items — not the full booking amount.
-    final cfg = await Api.paymentsConfig();
-    final payOnline = razorpayClientSupported && cfg['razorpay_enabled'] == true;
-    String orderId = '', paymentId = '', signature = '';
-
-    if (payOnline) {
-      // Only charge the guest's cart total — NOT the full booking amount.
-      final order = await Api.createRazorpayOrder(_cartTotal, _booking!.bookingId,
-          kind: 'guest_food');
-      if (order == null) {
-        if (!mounted) return;
-        setState(() => _submitting = false);
-        _toast('Could not start payment. Please try again.');
+    // 1. Join the invite once to get our inviteJoinId.
+    if (_inviteJoinId == null) {
+      final joinId = await Api.joinInvite(widget.token, name: guestName, phone: phoneDigits);
+      if (joinId == null) {
+        _failGuest('Could not join this booking — the invite may be full or expired.');
         return;
       }
+      _inviteJoinId = joinId;
+    }
+
+    // 2. Add each cart item to our join.
+    final items = _cart.entries
+        .map((e) => MapEntry(_food.firstWhere((f) => f.id == e.key), e.value))
+        .toList();
+    for (final entry in items) {
+      final ok = await Api.addJoinFood(widget.token, _inviteJoinId!, entry.key, entry.value);
+      if (!ok) {
+        _failGuest('Could not add ${entry.key.name}. Please try again.');
+        return;
+      }
+    }
+
+    // 3. If the host requires guests to pay for their own food, pay now.
+    final mustPay = _booking?.guestsMustPayForFood ?? false;
+    if (mustPay) {
+      if (!Api.razorpayConfigured || !razorpayClientSupported) {
+        _failGuest('Online payment is not available on this device.');
+        return;
+      }
+      final order = await Api.joinPaymentInitiate(widget.token, _inviteJoinId!, _cartTotal);
+      if (order == null) {
+        _failGuest('Could not start payment. Please try again.');
+        return;
+      }
+      final amountRupees = (order['amount'] as num?)?.toDouble() ?? _cartTotal;
       final result = await openRazorpayCheckout(
-        keyId: cfg['key_id'] as String? ?? '',
-        orderId: order['id'] as String,
-        amountPaise: (order['amount'] as num).toInt(),
+        keyId: Api.razorpayKeyId,
+        orderId: (order['razorpayOrderId'] ?? '').toString(),
+        amountPaise: (amountRupees * 100).round(),
         name: guestName,
         email: '',
-        contact: '',
+        contact: phoneDigits,
         description: 'Food for ${_booking!.activityName}',
       );
       if (result == null) {
-        if (!mounted) return;
-        setState(() => _submitting = false);
-        _toast('Payment cancelled.');
+        _failGuest('Payment cancelled.');
         return;
       }
-      orderId = result.orderId;
-      paymentId = result.paymentId;
-      signature = result.signature;
+      final verified = await Api.joinPaymentVerify(
+        widget.token,
+        _inviteJoinId!,
+        paymentId: result.paymentId,
+        orderId: result.orderId,
+        signature: result.signature,
+      );
+      if (!verified) {
+        _failGuest('Payment could not be verified. Please try again.');
+        return;
+      }
     }
 
-    final updated = await Api.addGuestFood(widget.token, guestName, items,
-        orderId: orderId, paymentId: paymentId, signature: signature);
     if (!mounted) return;
     setState(() {
       _submitting = false;
-      if (updated != null) {
-        _booking = updated;
-        _cart.clear();
-        _orderSuccess = true; // show success banner
-      }
+      _cart.clear();
+      _orderSuccess = true;
     });
-    if (updated != null) {
-      _toast('Your food has been added to the booking!');
-    } else {
-      _toast('Could not add food. Please try again.');
-    }
+    _toast(mustPay ? 'Your food is added and paid!' : 'Your food has been added to the booking!');
   }
 
   double get _cartTotal => _cart.entries.fold(
@@ -174,7 +203,9 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
                   AppButton(
                     _submitting
                         ? 'Processing…'
-                        : 'Pay ${rupees(_cartTotal)} · $_cartCount item${_cartCount == 1 ? '' : 's'}',
+                        : ((_booking?.guestsMustPayForFood ?? false)
+                            ? 'Pay ${rupees(_cartTotal)} · $_cartCount item${_cartCount == 1 ? '' : 's'}'
+                            : 'Add $_cartCount item${_cartCount == 1 ? '' : 's'}'),
                     loading: _submitting,
                     onPressed: _submitting ? null : _submit,
                   ),
@@ -187,7 +218,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           const SizedBox(height: AppSpacing.xl),
           const Tag("YOU'RE INVITED", tone: 'accent'),
           const SizedBox(height: AppSpacing.md),
-          Text('${b.hostName} invited you', style: T.h1),
+          const Text("You're invited", style: T.h1),
           const SizedBox(height: 4),
           const Text('View the booking and add your own food below.', style: T.caption),
 
@@ -251,13 +282,29 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
           ],
 
           const SizedBox(height: AppSpacing.xl),
-          const Text('Your name', style: T.h3),
+          const Text('Your details', style: T.h3),
           const SizedBox(height: AppSpacing.sm),
           TextField(
             controller: _nameCtrl,
             style: T.body,
             decoration: InputDecoration(
               hintText: 'Enter your name',
+              hintStyle: const TextStyle(color: AppColors.textFaint),
+              filled: true,
+              fillColor: AppColors.surface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextField(
+            controller: _phoneCtrl,
+            style: T.body,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              hintText: 'Mobile number (10 digits)',
               hintStyle: const TextStyle(color: AppColors.textFaint),
               filled: true,
               fillColor: AppColors.surface,
@@ -343,6 +390,7 @@ class _GuestInviteScreenState extends State<GuestInviteScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 }

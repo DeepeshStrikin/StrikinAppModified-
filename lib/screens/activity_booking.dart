@@ -11,18 +11,13 @@ import 'food.dart';
 String _tierLabel(String t) =>
     const {'standard': 'Standard', 'vip': 'VIP', 'vvip': 'VVIP', 'gold': 'Gold'}[t] ?? t.toUpperCase();
 
-/// The right word for the party size, by activity: golf/cricket → "players",
-/// rooftop dining → "guests", screening → "people".
-String _partyNoun(ActivityType? a, {bool plural = true}) {
-  if (a?.isRooftopDining ?? false) return plural ? 'guests' : 'guest';
-  if (a?.slug == 'screening') return plural ? 'people' : 'person';
-  return plural ? 'players' : 'player';
-}
-
-String _partyTitle(ActivityType? a) {
-  final n = _partyNoun(a);
-  return n[0].toUpperCase() + n.substring(1); // Players / Guests / People
-}
+/// Party-size word by activity (see models.partyNoun): games → "players",
+/// cafe / rooftop dining → "guests", mega screen / movies → "people".
+String _partyNoun(ActivityType? a, {bool plural = true}) => partyNoun(a, plural: plural);
+String _partyTitle(ActivityType? a) => partyTitle(a);
+// Bookable-unit word per activity: golf/cricket → "bay", cafe/rooftop → "table".
+String _spaceNoun(ActivityType? a, {bool plural = false}) => spaceNoun(a, plural: plural);
+String _spaceTitle(ActivityType? a) => spaceTitle(a);
 
 const _wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const _mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -100,7 +95,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1.9),
+            crossAxisCount: 4, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1.5),
           itemCount: bays.length,
           itemBuilder: (c, i) {
             final sel = store.isBaySelected(bays[i].id);
@@ -113,11 +108,21 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: sel ? AppColors.primary : AppColors.border, width: sel ? 2 : 1),
                 ),
-                child: Text('Bay ${i + 1}',
-                    style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: sel ? AppColors.primary : AppColors.text)),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('${_spaceTitle(store.activity)} ${i + 1}',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: sel ? AppColors.primary : AppColors.text)),
+                    const SizedBox(height: 2),
+                    Text(rupees(bays[i].pricePerSession),
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: sel ? AppColors.primary : AppColors.textMuted)),
+                  ],
+                ),
               ),
             );
           },
@@ -278,18 +283,15 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
         // Themed tiers (e.g. VVIP rooms) let the customer pick the specific bay;
         // generic tiers (Standard/VIP) show a simple "Bay 1, Bay 2…" grid.
         final pickSpecific = tierBays.isEmpty || tierBays.first.allowSelect;
-        final isDining = act?.isRooftopDining ?? false;
         final isScreening = act?.slug == 'screening';
-        final title = isDining
-            ? 'Reserve a table'
-            : isScreening
-                ? 'Pick your seats'
-                : 'Book a ${act?.name.toLowerCase() ?? 'bay'}';
-        final selectLabel = isDining
-            ? 'Choose your table & vibe'
-            : isScreening
-                ? 'Choose your seats'
-                : 'Bay type';
+        final noun = _spaceNoun(act); // bay / table / seat
+        final isTable = noun == 'table';
+        final title = isScreening
+            ? 'Pick your seats'
+            : (isTable ? 'Reserve a table' : 'Book a $noun');
+        final selectLabel = isScreening
+            ? 'Choose your seats'
+            : (isTable ? 'Choose your table & vibe' : '${_spaceTitle(act)} type');
         return Scaffold(
           backgroundColor: AppColors.background,
           body: SafeArea(
@@ -393,9 +395,9 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Text('${_tierLabel(tier)} bay', style: T.bodyStrong),
+                                              Text('${_tierLabel(tier)} $noun', style: T.bodyStrong),
                                               const SizedBox(height: 4),
-                                              Text('$count ${count == 1 ? 'bay' : 'bays'} available',
+                                              Text('$count ${count == 1 ? noun : _spaceNoun(act, plural: true)} available',
                                                   style: T.caption),
                                             ],
                                           ),
@@ -412,10 +414,10 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                             // STEP 2 — pick one OR MORE named bays within the chosen tier
                             if (_selectedTier != null && _baysOfTier(_selectedTier!).length > 1) ...[
                               const SizedBox(height: AppSpacing.lg),
-                              Text(pickSpecific ? 'Select ${_tierLabel(_selectedTier!)} bay(s)' : 'Select number of bays', style: T.h3),
+                              Text(pickSpecific ? 'Select ${_tierLabel(_selectedTier!)} $noun(s)' : 'Select number of ${_spaceNoun(act, plural: true)}', style: T.h3),
                               const SizedBox(height: 4),
                               Text(
-                                'You can select multiple bays (max ${tierBays.first.maxPlayers} ${_partyNoun(act)} per bay)',
+                                'You can select multiple ${_spaceNoun(act, plural: true)} (max ${tierBays.first.maxPlayers} ${_partyNoun(act)} per $noun)',
                                 style: const TextStyle(color: AppColors.textFaint, fontSize: 13),
                               ),
                               const SizedBox(height: AppSpacing.sm),
@@ -445,9 +447,11 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                                                   Row(children: [
                                                     Flexible(child: Text(b.name, style: T.bodyStrong, overflow: TextOverflow.ellipsis)),
                                                     const Spacer(),
-                                                    Text('Max ${b.maxPlayers}', style: T.caption),
+                                                    Text(rupees(b.pricePerSession), style: TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.w700)),
                                                   ]),
-                                                  const SizedBox(height: 4),
+                                                  const SizedBox(height: 2),
+                                                  Text('Max ${b.maxPlayers} · per session', style: T.caption),
+                                                  const SizedBox(height: 2),
                                                   Text(b.description, style: T.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
                                                 ],
                                               ),
@@ -487,8 +491,8 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                                       Expanded(
                                         child: Text(
                                           store.bays.length < _baysOfTier(_selectedTier!).length
-                                              ? 'These ${store.bays.length == 1 ? 'bay holds' : 'bays hold'} only ${store.totalCapacity} ${_partyNoun(act)} — add another bay to fit all ${store.players}.'
-                                              : 'These bays hold only ${store.totalCapacity} ${_partyNoun(act)}. Reduce players or choose a bigger tier.',
+                                              ? 'These ${store.bays.length == 1 ? '$noun holds' : '${_spaceNoun(act, plural: true)} hold'} only ${store.totalCapacity} ${_partyNoun(act)} — add another $noun to fit all ${store.players}.'
+                                              : 'These ${_spaceNoun(act, plural: true)} hold only ${store.totalCapacity} ${_partyNoun(act)}. Reduce ${_partyNoun(act)} or choose a bigger tier.',
                                           style: const TextStyle(color: Color(0xFFE5484D), fontSize: 13, height: 1.35),
                                         ),
                                       ),
@@ -534,7 +538,7 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(store.bays.isNotEmpty ? '${store.bays.length} ${store.bays.length == 1 ? 'bay' : 'bays'} · ${store.players} ${_partyNoun(act, plural: store.players != 1)}' : 'Select a bay', style: T.caption),
+                                Text(store.bays.isNotEmpty ? '${store.bays.length} ${store.bays.length == 1 ? noun : _spaceNoun(act, plural: true)} · ${store.players} ${_partyNoun(act, plural: store.players != 1)}' : 'Select a $noun', style: T.caption),
                                 Text(rupees(store.bayTotal), style: T.h3.copyWith(color: AppColors.primary)),
                               ],
                             ),

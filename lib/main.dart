@@ -1,10 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app_nav.dart';
 import 'auth.dart';
+import 'deep_link.dart';
 import 'theme.dart';
 import 'widgets/animated_splash.dart';
 import 'screens/login.dart';
 import 'screens/shell.dart';
+import 'screens/corporate_cx.dart';
 import 'screens/guest_invite.dart';
 
 void main() {
@@ -13,14 +16,30 @@ void main() {
   runApp(const StrikinApp());
 }
 
-class StrikinApp extends StatelessWidget {
+class StrikinApp extends StatefulWidget {
   const StrikinApp({super.key});
 
   @override
+  State<StrikinApp> createState() => _StrikinAppState();
+}
+
+class _StrikinAppState extends State<StrikinApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Native invite deep links (strikin://join/… and verified https App Links)
+    // are handled by app_links; the web build uses Uri.base below. Init after
+    // the first frame so the Navigator exists when a cold-start link arrives.
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => DeepLinkService.instance.init());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // If the app was opened from an invite link (?invite=TOKEN), show the
+    // Web: if the app was opened from an invite link (?invite=TOKEN), show the
     // guest invite screen directly — guests don't need to log in.
-    final inviteToken = Uri.base.queryParameters['invite'];
+    final inviteToken = kIsWeb ? Uri.base.queryParameters['invite'] : null;
     return MaterialApp(
       title: 'Strikin',
       navigatorKey: navigatorKey,
@@ -55,6 +74,10 @@ class _RootGateState extends State<RootGate> {
           content = const SizedBox.shrink();
         } else if (auth.user == null) {
           content = const LoginScreen();
+        } else if (auth.user?.isCorporate ?? false) {
+          // Corporate users (super admin + team lead) get the dedicated
+          // Home / Team / Bookings / Settings shell.
+          content = const CxCorporateShell();
         } else {
           content = const AppShell();
         }

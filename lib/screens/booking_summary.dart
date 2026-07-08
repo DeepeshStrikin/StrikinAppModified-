@@ -3,12 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../api.dart';
+import '../auth.dart';
+import '../models.dart';
+import '../razorpay_checkout.dart';
 import '../store.dart';
 import '../theme.dart';
 import '../widgets/scaffold.dart';
 import '../widgets/ui.dart';
 
-/// Booking summary opened from "My bookings" — shows the QR, details, invite & cancel.
+/// Booking summary opened from "My bookings" — QR, details, players & food,
+/// extend session, host-pays-for-guests, invite management, and cancel.
 class BookingSummaryScreen extends StatefulWidget {
   final MyBooking booking;
   const BookingSummaryScreen({super.key, required this.booking});
@@ -18,28 +22,151 @@ class BookingSummaryScreen extends StatefulWidget {
 
 class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool _busy = false;
-  List<Map<String, dynamic>> _hostFood = [];
-  List<Map<String, dynamic>> _guestFood = [];
+  Map<String, dynamic>? _game; // /bookings/{id}/game-details
   MyBooking get b => widget.booking;
 
   @override
   void initState() {
     super.initState();
-    _loadFood();
+    _load();
   }
 
-  Future<void> _loadFood() async {
-    final d = await Api.bookingDetails(b.id);
-    if (!mounted || d == null) return;
-    setState(() {
-      _hostFood = List<Map<String, dynamic>>.from(d['host_food'] ?? []);
-      _guestFood = List<Map<String, dynamic>>.from(d['guest_food'] ?? []);
-    });
+  Future<void> _load() async {
+    final g = await Api.gameDetails(b.id);
+    if (!mounted) return;
+    setState(() => _game = g);
   }
 
-  void _toast(String m) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
+  List<Map<String, dynamic>> get _activities =>
+      ((_game?['activities'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+  List<Map<String, dynamic>> get _players =>
+      ((_game?['players'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+  List<Map<String, dynamic>> get _hostFood =>
+      ((_game?['hostFoodOrders'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+  double get _unpaidTotal => toDouble(_game?['unpaidTotal']);
+
+  // ── Extend ───────────────────────────────────────────────────────────────────
+  Future<void> _extend(Map<String, dynamic> activity) async {
+    final itemId = (activity['bookingItemId'] ?? '').toString();
+    if (itemId.isEmpty) return;
+    setState(() => _busy = true);
+    final avail = await Api.extensionAvailability(b.id, itemId);
+    setState(() => _busy = false);
+    if (!mounted) return;
+    if (avail['available'] != true) {
+      _toast('No next slot free to extend into.');
+      return;
+    }
+    final partialFee = toDouble(avail['partialFee']);
+    final fullFee = toDouble(avail['fullFee']);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surfaceAlt,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Extend ${activity['activityName'] ?? 'session'}', style: T.h2),
+          const SizedBox(height: 6),
+          const Text('Add time to your current slot.', style: T.caption),
+          const SizedBox(height: AppSpacing.lg),
+          _ExtendOption(label: 'Half extension', sub: 'Add half a session', price: partialFee, onTap: () => Navigator.pop(ctx, 'partial')),
+          const SizedBox(height: AppSpacing.sm),
+          _ExtendOption(label: 'Full extension', sub: 'Add a full session', price: fullFee, onTap: () => Navigator.pop(ctx, 'full')),
+          const SizedBox(height: AppSpacing.sm),
+        ]),
+      ),
+    );
+    if (choice == null) return;
+    setState(() => _busy = true);
+    try {
+      await Api.extendBooking(b.id, itemId, choice);
+      _toast('Session extended');
+      await _load();
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } catch (_) {
+      _toast('Could not extend. Try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // ── Host pays for all guests' food ─────────────────────────────────────────────
+  Future<void> _payGuestFood() async {
+    if (_unpaidTotal <= 0) return;
+    final isCorp = AuthState.instance.user?.isCorporate == true;
+    final method = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surfaceAlt,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Pay for guests’ food · ${rupees(_unpaidTotal)}', style: T.h2),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton('Pay online', onPressed: () => Navigator.pop(ctx, 'upi')),
+          if (isCorp) ...[
+            const SizedBox(height: AppSpacing.sm),
+            AppButton('Use corporate wallet', variant: 'secondary', onPressed: () => Navigator.pop(ctx, 'wallet')),
+          ],
+          const SizedBox(height: AppSpacing.sm),
+        ]),
+      ),
+    );
+    if (method == null) return;
+    setState(() => _busy = true);
+    try {
+      final res = await Api.payGuestFoodInitiate(b.id, _unpaidTotal, method: method);
+      if (res == null) {
+        _toast('Could not start payment.');
+        return;
+      }
+      if (res['requiresPayment'] == true) {
+        if (!Api.razorpayConfigured) {
+          _toast('Online payments not configured.');
+          return;
+        }
+        final user = AuthState.instance.user;
+        final rp = await openRazorpayCheckout(
+          keyId: Api.razorpayKeyId,
+          orderId: (res['razorpayOrderId'] ?? '').toString(),
+          amountPaise: (_unpaidTotal * 100).round(),
+          name: user?.name ?? 'Strikin',
+          email: user?.email ?? '',
+          contact: user?.phone ?? '',
+          description: 'Guest food · ${b.activity}',
+          bookingId: b.id,
+        );
+        if (rp == null) {
+          _toast('Payment cancelled.');
+          return;
+        }
+        final ok = await Api.payGuestFoodVerify(b.id, paymentId: rp.paymentId, orderId: rp.orderId, method: method, amount: _unpaidTotal);
+        if (!ok) {
+          _toast('Could not verify payment.');
+          return;
+        }
+      }
+      _toast('Guests’ food paid');
+      await _load();
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _removePlayer(Map<String, dynamic> p) async {
+    final ok = await Api.removePlayer(b.id, (p['inviteJoinId'] ?? '').toString());
+    if (!mounted) return;
+    _toast(ok ? 'Removed ${p['name'] ?? 'player'}' : 'Could not remove (they may have paid).');
+    if (ok) _load();
+  }
+
+  // ── Invites ────────────────────────────────────────────────────────────────────
   Future<void> _sendInvite() async {
     setState(() => _busy = true);
     final token = await Api.createInvite(b.id);
@@ -49,7 +176,10 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       _toast('Could not create invite. Try again.');
       return;
     }
-    final link = Api.inviteLink(token);
+    _shareSheet(Api.inviteLink(token), token);
+  }
+
+  void _shareSheet(String link, String token) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surfaceAlt,
@@ -69,7 +199,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           const SizedBox(height: AppSpacing.md),
           AppButton('Share invite', onPressed: () {
             Navigator.of(ctx).pop();
-            Share.share('Join my Strikin booking! View it and add your food: $link', subject: 'Strikin booking invite');
+            Share.share(Api.inviteShareMessage(token), subject: 'Strikin booking invite');
           }),
           const SizedBox(height: AppSpacing.sm),
           AppButton('Copy link', variant: 'secondary', onPressed: () {
@@ -83,36 +213,84 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     );
   }
 
-  Future<void> _cancel() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceAlt,
-        title: const Text('Cancel booking?', style: TextStyle(color: AppColors.text)),
-        content: const Text('This frees the slot for others. This cannot be undone.', style: TextStyle(color: AppColors.textMuted)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancel booking', style: TextStyle(color: AppColors.danger))),
-        ],
-      ),
-    );
-    if (ok != true) return;
+  Future<void> _manageInvites() async {
     setState(() => _busy = true);
-    final done = await Api.cancelBooking(b.id);
+    final invites = await Api.listInvites(b.id);
     setState(() => _busy = false);
     if (!mounted) return;
-    if (done) {
-      BookingStore.instance.cancelLocal(b.id);
-      _toast('Booking cancelled');
-      Navigator.of(context).pop();
-    } else {
-      _toast('Could not cancel. Try again.');
-    }
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surfaceAlt,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final first = invites.isNotEmpty ? invites.first : null;
+          final mustPay = first?['guestsMustPayForFood'] == true;
+          return Padding(
+            padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: AppSpacing.lg + MediaQuery.of(ctx).viewInsets.bottom),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Text('Manage invites', style: T.h2),
+              const SizedBox(height: AppSpacing.md),
+              if (invites.isEmpty)
+                const Text('No active invites. Tap “Send invite” to create one.', style: T.caption)
+              else
+                ...invites.map((inv) {
+                  final joined = inv['joinedCount'] ?? 0;
+                  final cap = inv['maxPlayers'] ?? 0;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: Row(children: [
+                      Expanded(child: Text('${inv['activityName'] ?? 'Invite'} · $joined joined / $cap left', style: T.caption)),
+                      Tag((inv['status'] ?? 'open').toString(), tone: inv['status'] == 'open' ? 'accent' : 'neutral'),
+                    ]),
+                  );
+                }),
+              const SizedBox(height: AppSpacing.md),
+              Row(children: [
+                const Expanded(child: Text('Guests pay for their own food', style: T.body)),
+                Switch(
+                  value: mustPay,
+                  activeThumbColor: AppColors.primary,
+                  onChanged: (v) async {
+                    final ok = await Api.updateInviteSettings(b.id, v);
+                    if (ok) {
+                      setSheet(() {
+                        for (final inv in invites) {
+                          inv['guestsMustPayForFood'] = v;
+                        }
+                      });
+                    }
+                  },
+                ),
+              ]),
+              const SizedBox(height: AppSpacing.md),
+              AppButton('Regenerate invite link', variant: 'secondary', onPressed: () async {
+                final res = await Api.regenerateInvite(b.id);
+                if (!ctx.mounted) return;
+                Navigator.of(ctx).pop();
+                if (res != null) {
+                  final newToken = (res['inviteToken'] ?? '').toString();
+                  _shareSheet((res['inviteLink'] ?? Api.inviteLink(newToken)).toString(), newToken);
+                } else {
+                  _toast('Could not regenerate.');
+                }
+              }),
+              const SizedBox(height: AppSpacing.sm),
+            ]),
+          );
+        },
+      ),
+    );
   }
+
+  // Cancellation policy not finalised yet — surfaced as "coming soon".
+  void _cancel() => _toast('Cancellation is coming soon.');
 
   @override
   Widget build(BuildContext context) {
     final cancellable = b.status == 'upcoming';
+    final hostPaid = _game?['hostPaid'] == true;
     return AppScaffold(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -121,6 +299,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           const AppHeader(title: 'Booking summary'),
           const SizedBox(height: AppSpacing.lg),
 
+          // QR + headline
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,17 +312,13 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(AppSpacing.md),
                     decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(AppRadius.md)),
-                    child: QrImageView(data: b.qr, size: 170, backgroundColor: AppColors.white),
+                    child: b.id.isNotEmpty
+                        ? QrImageView(data: b.id, size: 170, backgroundColor: AppColors.white)
+                        : const SizedBox(width: 170, height: 170, child: Center(child: Text('QR unavailable', style: TextStyle(color: Colors.black54, fontSize: 12)))),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                const Center(child: Text('Show your QR code at the bay entrance to start your game.',
-                    textAlign: TextAlign.center, style: T.caption)),
-                const Divider(color: AppColors.border, height: AppSpacing.xl),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  const Text('PIN', style: T.caption),
-                  Text(b.pin, style: T.h3.copyWith(color: AppColors.primary, letterSpacing: 5)),
-                ]),
+                const Center(child: Text('Show your QR code at the bay entrance to start your game.', textAlign: TextAlign.center, style: T.caption)),
                 const Divider(color: AppColors.border, height: AppSpacing.xl),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Amount', style: T.caption),
@@ -158,62 +333,141 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             ),
           ),
 
+          // Activities + extend
+          if (_activities.isNotEmpty && cancellable) ...[
+            const SizedBox(height: AppSpacing.lg),
+            const Text('Your activities', style: T.bodyStrong),
+            const SizedBox(height: AppSpacing.sm),
+            ..._activities.map((a) => Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: AppCard(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    child: Row(children: [
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('${a['activityName'] ?? 'Activity'} · ${a['bayName'] ?? ''}', style: T.body),
+                          Text('${a['numPlayers'] ?? 1} players', style: T.caption),
+                        ]),
+                      ),
+                      TextButton(
+                        onPressed: _busy ? null : () => _extend(a),
+                        child: Text('Extend', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                      ),
+                    ]),
+                  ),
+                )),
+          ],
+
+          // Host food
           if (_hostFood.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Food ordered', style: T.bodyStrong),
-                  const SizedBox(height: AppSpacing.sm),
-                  for (final f in _hostFood)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        Expanded(child: Text('${f['quantity']} × ${f['name']}', style: T.caption)),
-                        Text(rupees((f['total'] as num).toDouble()), style: T.caption),
-                      ]),
-                    ),
-                ],
-              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  const Text('Your food', style: T.bodyStrong),
+                  Tag(hostPaid ? 'Paid' : 'Unpaid', tone: hostPaid ? 'success' : 'neutral'),
+                ]),
+                const SizedBox(height: AppSpacing.sm),
+                for (final f in _hostFood)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Expanded(child: Text('${f['quantity'] ?? 1} × ${f['restroworksItemName'] ?? 'Item'}', style: T.caption)),
+                      Text(rupees(toDouble(f['itemTotal'])), style: T.caption),
+                    ]),
+                  ),
+              ]),
             ),
           ],
 
-          if (_guestFood.isNotEmpty) ...[
+          // Players & their food
+          if (_players.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Guests added', style: T.bodyStrong),
-                  const SizedBox(height: AppSpacing.sm),
-                  for (final f in _guestFood)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        Expanded(child: Text('${f['guest']}: ${f['quantity']} × ${f['name']}', style: T.caption)),
-                        Text(rupees((f['total'] as num).toDouble()), style: T.caption),
-                      ]),
-                    ),
-                ],
-              ),
-            ),
+            const Text('Players', style: T.bodyStrong),
+            const SizedBox(height: AppSpacing.sm),
+            ..._players.map((p) {
+              final paid = p['isPaid'] == true;
+              final food = ((p['foodOrders'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: AppCard(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Expanded(child: Text((p['name'] ?? 'Guest').toString(), style: T.body)),
+                      Tag(paid ? 'Paid' : 'Unpaid', tone: paid ? 'success' : 'neutral'),
+                      if (!paid && cancellable)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.person_remove_outlined, size: 18, color: AppColors.textMuted),
+                          onPressed: _busy ? null : () => _removePlayer(p),
+                        ),
+                    ]),
+                    for (final f in food)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                          Expanded(child: Text('${f['quantity'] ?? 1} × ${f['restroworksItemName'] ?? 'Item'}', style: T.caption)),
+                          Text(rupees(toDouble(f['itemTotal'])), style: T.caption),
+                        ]),
+                      ),
+                  ]),
+                ),
+              );
+            }),
           ],
 
+          // Host pays for guests' food
+          if (_unpaidTotal > 0) ...[
+            const SizedBox(height: AppSpacing.sm),
+            AppButton('Pay for guests’ food · ${rupees(_unpaidTotal)}', loading: _busy, onPressed: _busy ? null : _payGuestFood),
+          ],
+
+          // Invite
           const SizedBox(height: AppSpacing.lg),
           const Text('Invite guests', style: T.bodyStrong),
           const SizedBox(height: 4),
-          const Text('Share the invite link to your guests. They can view the booking and add their own food (paid by them).',
-              style: TextStyle(color: AppColors.textFaint, fontSize: 13)),
+          const Text('Share the invite link with your guests — they can view the booking and add their own food.', style: TextStyle(color: AppColors.textFaint, fontSize: 13)),
           const SizedBox(height: AppSpacing.md),
           AppButton(_busy ? 'Please wait…' : 'Send invite', loading: _busy, onPressed: _busy ? null : _sendInvite),
+          const SizedBox(height: AppSpacing.sm),
+          AppButton('Manage invites', variant: 'secondary', onPressed: _busy ? null : _manageInvites),
 
           if (cancellable) ...[
             const SizedBox(height: AppSpacing.sm),
-            AppButton('Cancel booking', variant: 'secondary', onPressed: _busy ? null : _cancel),
+            // Cancellation policy not finalised yet — surface as coming soon.
+            AppButton('Cancel booking (coming soon)', variant: 'secondary', onPressed: _cancel),
           ],
           const SizedBox(height: AppSpacing.xxl),
         ],
+      ),
+    );
+  }
+}
+
+class _ExtendOption extends StatelessWidget {
+  final String label, sub;
+  final double price;
+  final VoidCallback onTap;
+  const _ExtendOption({required this.label, required this.sub, required this.price, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(AppRadius.md), border: Border.all(color: AppColors.border)),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: T.bodyStrong),
+              Text(sub, style: T.caption),
+            ]),
+          ),
+          Text(rupees(price), style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+        ]),
       ),
     );
   }

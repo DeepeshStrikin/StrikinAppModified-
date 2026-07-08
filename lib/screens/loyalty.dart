@@ -5,20 +5,34 @@ import '../theme.dart';
 import '../widgets/scaffold.dart';
 import '../widgets/ui.dart';
 
-class LoyaltyScreen extends StatelessWidget {
+/// Loyalty / rewards. Points are the REAL balance from the backend
+/// (`User.loyaltyPoints`, earned 1 pt per ₹100 spent on confirmed bookings),
+/// surfaced via `/auth/me` and refreshed on open.
+class LoyaltyScreen extends StatefulWidget {
   const LoyaltyScreen({super.key});
+  @override
+  State<LoyaltyScreen> createState() => _LoyaltyScreenState();
+}
+
+class _LoyaltyScreenState extends State<LoyaltyScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Pull the latest points balance whenever this tab is shown.
+    AuthState.instance.refreshProfile();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: BookingStore.instance,
+      listenable: Listenable.merge([BookingStore.instance, AuthState.instance]),
       builder: (context, _) {
         final store = BookingStore.instance;
-        final pts = store.loyaltyPoints;
+        final user = AuthState.instance.user;
+        final pts = user?.loyaltyPoints ?? 0;
         const nextTier = 1000;
         final progress = (pts / nextTier).clamp(0.0, 1.0);
         final tier = pts >= nextTier ? 'Gold' : 'Silver';
-        final user = AuthState.instance.user;
         final referral = 'STRIKIN-${(user?.email ?? 'GUEST').split('@').first.toUpperCase()}';
 
         return AppScaffold(
@@ -116,7 +130,7 @@ class LoyaltyScreen extends StatelessWidget {
                                 Text(store.myBookings[i].date, style: const TextStyle(color: AppColors.textFaint, fontSize: 13)),
                               ]),
                             ),
-                            Tag('+${store.myBookings[i].loyalty}', tone: 'accent'),
+                            Tag('+${(store.myBookings[i].amount / 100).floor()}', tone: 'accent'),
                           ],
                         ),
                         if (i < store.myBookings.length - 1) const Divider(color: AppColors.border, height: AppSpacing.xl),
@@ -125,7 +139,7 @@ class LoyaltyScreen extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: AppSpacing.lg),
-              const Center(child: Text('Points are credited after each booking and can be redeemed on future bookings.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
+              const Center(child: Text('Points are credited after each confirmed booking — 1 point for every ₹100 spent.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
             ],
           ),
         );
