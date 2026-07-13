@@ -43,6 +43,7 @@ class _StrikinAppState extends State<StrikinApp> {
     return MaterialApp(
       title: 'Strikin',
       navigatorKey: navigatorKey,
+      navigatorObservers: [routeObserver],
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       home: (inviteToken != null && inviteToken.isNotEmpty)

@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../api.dart';
 import '../app_image.dart';
+import '../app_nav.dart';
 import '../auth.dart';
 import '../models.dart';
 import '../razorpay_checkout.dart';
 import '../store.dart';
+import 'terms.dart';
 import 'activity_booking.dart';
 import 'bookings.dart';
 import 'shows.dart';
@@ -3890,7 +3892,7 @@ class CxCorporateHome extends StatefulWidget {
   State<CxCorporateHome> createState() => _CxCorporateHomeState();
 }
 
-class _CxCorporateHomeState extends State<CxCorporateHome> with WidgetsBindingObserver {
+class _CxCorporateHomeState extends State<CxCorporateHome> with WidgetsBindingObserver, RouteAware {
   bool _loading = true;
   double _available = 0, _creditUsed = 0;
   double? _creditLimit;
@@ -3918,8 +3920,16 @@ class _CxCorporateHomeState extends State<CxCorporateHome> with WidgetsBindingOb
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) routeObserver.subscribe(this, route);
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    routeObserver.unsubscribe(this);
     super.dispose();
   }
 
@@ -3929,6 +3939,11 @@ class _CxCorporateHomeState extends State<CxCorporateHome> with WidgetsBindingOb
     // changes (e.g. KYC just approved) then show up without a manual pull.
     if (state == AppLifecycleState.resumed) _load();
   }
+
+  // Fired when a pushed flow (e.g. a booking) is popped and the dashboard is
+  // visible again → re-fetch so the wallet / budget shows the new balance.
+  @override
+  void didPopNext() => _load();
 
   /// Re-fetch from the shell when the Home tab is (re)selected.
   void reload() {
@@ -4309,7 +4324,7 @@ class _CxCorporateSettingsState extends State<CxCorporateSettings> {
             _row(Icons.help_outline, 'Help & FAQ', onTap: () => _todo('Help & FAQ')),
             _row(Icons.headset_mic_outlined, 'Contact support', onTap: () => _todo('Contact support')),
             _section('Legal'),
-            _row(Icons.description_outlined, 'Terms & conditions', onTap: () => _todo('Terms & conditions')),
+            _row(Icons.description_outlined, 'Terms & conditions', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen()))),
             _row(Icons.verified_user_outlined, 'Privacy policy', onTap: () => _todo('Privacy policy')),
             const SizedBox(height: 16),
             _greyPill('Log out', () => AuthState.instance.logout()),

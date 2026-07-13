@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../app_image.dart';
@@ -192,6 +193,7 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
   final Set<String> _selected = {};
   bool _busy = false;
   String? _filterTier; // tapped tier filter (dims other zones)
+  int _floor = 1; // selected floor/level (Ground = 1, First = 2)
   final TransformationController _tc = TransformationController();
   bool _didFit = false;
 
@@ -280,7 +282,7 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
                         style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
                   ),
                 ),
-                if (map != null && map.tiers.isNotEmpty) _tierBar(map),
+                if (map != null) _floorToggle(map),
                 Expanded(
                   child: map == null
                       ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -308,52 +310,58 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
     );
   }
 
-  // Cosm-style price-zone chips (colour + name + "From ₹X"). Tap to focus a zone.
-  Widget _tierBar(ShowSeatMap map) => SizedBox(
-        height: 60,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 6, AppSpacing.lg, 6),
-          children: [for (final t in map.tiers) _tierChip(t)],
-        ),
-      );
-
-  Widget _tierChip(SeatTier t) {
-    final active = _filterTier == t.id;
-    final c = _hexColor(t.color) ?? AppColors.primary;
+  // Ground / First floor switcher (only shown when the map spans multiple levels).
+  Widget _floorToggle(ShowSeatMap map) {
+    final levels = map.seats.map((s) => s.level).toSet().toList()..sort();
+    if (levels.length < 2) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: () => setState(() => _filterTier = active ? null : t.id),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: active ? c.withOpacity(0.22) : AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: active ? c : AppColors.border, width: active ? 2 : 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(width: 12, height: 12, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
-              const SizedBox(width: 8),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(t.name, style: const TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('From ${rupees(t.fromPrice)}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
-                ],
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 8, AppSpacing.lg, 0),
+      child: Row(
+        children: [
+          for (final lv in levels)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () => setState(() {
+                  _floor = lv;
+                  _didFit = false; // re-fit the canvas to the new floor
+                }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _floor == lv ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    border: Border.all(color: _floor == lv ? AppColors.primary : AppColors.border),
+                  ),
+                  child: Text(
+                    lv == 1 ? 'Ground floor' : (lv == 2 ? 'First floor' : 'Floor $lv'),
+                    style: TextStyle(
+                      color: _floor == lv ? AppColors.textOnAccent : AppColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }
 
   Widget _seatMap(ShowSeatMap map) {
-    final positions = _computePositions(map.seats);
+    final seats = map.seats.where((s) => s.level == _floor).toList();
+    final positions = _computePositions(seats);
+    // Pods (category 'Pod') are drawn as one fan per pod; armchairs as dots.
+    final regular = <SeatOption>[];
+    final podGroups = <String, List<SeatOption>>{};
+    for (final s in seats) {
+      if ((s.category ?? '') == 'Pod') {
+        podGroups.putIfAbsent(s.rowLabel, () => []).add(s);
+      } else {
+        regular.add(s);
+      }
+    }
     double minX = 1e9, maxX = 0, maxY = 300;
     for (final o in positions.values) {
       if (o.dx < minX) minX = o.dx;
@@ -385,26 +393,31 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
             child: Stack(
               children: [
                 Positioned(
-                  top: 6,
-                  left: seatCenterX - 150,
-                  width: 300,
-                  height: 32,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [AppColors.primary.withOpacity(0.05), AppColors.primary.withOpacity(0.4), AppColors.primary.withOpacity(0.05)]),
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(120)),
-                      border: Border(top: BorderSide(color: AppColors.primary, width: 2)),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text('SCREEN', style: TextStyle(color: AppColors.textMuted, fontSize: 10, letterSpacing: 4)),
-                  ),
+                  top: 2,
+                  left: seatCenterX - (maxX - minX) * 0.42,
+                  width: (maxX - minX) * 0.84,
+                  height: 94,
+                  child: const _ScreenArc(),
                 ),
-                for (final s in map.seats)
+                for (final s in regular)
                   if (positions[s.id] != null)
                     Positioned(
                       left: positions[s.id]!.dx - 13,
                       top: positions[s.id]!.dy - 13,
                       child: _seatDot(s, map),
+                    ),
+                for (final pod in podGroups.values)
+                  if (positions[pod.first.id] != null)
+                    Positioned(
+                      left: positions[pod.first.id]!.dx - 34,
+                      top: positions[pod.first.id]!.dy - 30,
+                      child: _PodFan(
+                        seats: [...pod]..sort((a, b) => a.sortCol.compareTo(b.sortCol)),
+                        color: _seatColor(pod.first, map),
+                        selectedIds: _selected,
+                        dim: _filterTier != null && pod.first.tierId != _filterTier,
+                        onTapSeat: _toggle,
+                      ),
                     ),
               ],
             ),
@@ -722,4 +735,147 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
       },
     );
   }
+}
+
+/// Draws one COSM pod as a fan: a curved bench split into 4 seat segments around
+/// a central table circle. Each segment is an individually-tappable seat.
+class _PodFan extends StatelessWidget {
+  final List<SeatOption> seats; // 4, ordered left→right by sortCol
+  final Color color;
+  final Set<String> selectedIds;
+  final bool dim;
+  final void Function(SeatOption) onTapSeat;
+  const _PodFan({
+    required this.seats,
+    required this.color,
+    required this.selectedIds,
+    required this.dim,
+    required this.onTapSeat,
+  });
+
+  static const double _w = 68, _h = 60;
+
+  @override
+  Widget build(BuildContext context) {
+    const center = Offset(_w / 2, _h * 0.34);
+    const ro = _w * 0.46, ri = _w * 0.24;
+    return Opacity(
+      opacity: dim ? 0.25 : 1,
+      child: GestureDetector(
+        onTapUp: dim
+            ? null
+            : (d) {
+                final v = d.localPosition - center;
+                final r = v.distance;
+                if (r < ri * 0.4 || r > ro + 5) return; // table centre or outside
+                final a = math.atan2(v.dy, v.dx);
+                if (a < 0) return; // top half — no seats there
+                final n = seats.length;
+                final idx = (a / (math.pi / n)).floor().clamp(0, n - 1);
+                final seat = seats[n - 1 - idx]; // segment 0 is on the right
+                if (!seat.booked) onTapSeat(seat);
+              },
+        child: CustomPaint(
+          size: const Size(_w, _h),
+          painter: _PodFanPainter(seats: seats, selectedIds: selectedIds, color: color, center: center, ri: ri, ro: ro),
+        ),
+      ),
+    );
+  }
+}
+
+class _PodFanPainter extends CustomPainter {
+  final List<SeatOption> seats;
+  final Set<String> selectedIds;
+  final Color color;
+  final Offset center;
+  final double ri, ro;
+  _PodFanPainter({required this.seats, required this.selectedIds, required this.color, required this.center, required this.ri, required this.ro});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final n = seats.length;
+    for (var i = 0; i < n; i++) {
+      final a0 = math.pi * (i / n);
+      final a1 = math.pi * ((i + 1) / n);
+      final seat = seats[n - 1 - i];
+      final path = Path()
+        ..moveTo(center.dx + ri * math.cos(a0), center.dy + ri * math.sin(a0))
+        ..lineTo(center.dx + ro * math.cos(a0), center.dy + ro * math.sin(a0))
+        ..arcTo(Rect.fromCircle(center: center, radius: ro), a0, a1 - a0, false)
+        ..lineTo(center.dx + ri * math.cos(a1), center.dy + ri * math.sin(a1))
+        ..arcTo(Rect.fromCircle(center: center, radius: ri), a1, -(a1 - a0), false)
+        ..close();
+      final sel = selectedIds.contains(seat.id);
+      final fill = Paint()
+        ..style = PaintingStyle.fill
+        ..color = seat.booked
+            ? AppColors.surfaceElevated
+            : (sel ? AppColors.primary : color.withValues(alpha: 0.30));
+      canvas.drawPath(path, fill);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = sel ? 2 : 1
+          ..color = sel ? AppColors.primary : color,
+      );
+    }
+    canvas.drawCircle(center, ri * 0.5, Paint()..style = PaintingStyle.stroke..strokeWidth = 1..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_PodFanPainter old) => true;
+}
+
+/// A big curved cinema screen that wraps over the audience (∩ arc), with a "SCREEN" label.
+class _ScreenArc extends StatelessWidget {
+  const _ScreenArc();
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(child: CustomPaint(painter: _ScreenArcPainter())),
+        const Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: Text('SCREEN',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11, letterSpacing: 6, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScreenArcPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    // ∩ arc: peak in the middle (near the top), ends dropping down toward the audience.
+    final path = Path()
+      ..moveTo(0, h * 0.60)
+      ..quadraticBezierTo(w / 2, -h * 0.42, w, h * 0.60);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.primary.withValues(alpha: 0.22)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.primary
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ScreenArcPainter old) => false;
 }

@@ -148,6 +148,10 @@ class BookingStore extends ChangeNotifier {
   double get cartTotal => cart.fold(0.0, (s, l) => s + l.total);
   /// All configured activities' total (cart legs + the current selection).
   double get combinedTotal => cartTotal + grandTotal;
+  /// Pre-tax bay (activity) subtotal across the whole cart + current selection.
+  double get combinedBayTotal => cart.fold(0.0, (s, l) => s + l.bayTotal) + bayTotal;
+  /// Pre-tax food subtotal across the whole cart + current selection.
+  double get combinedFoodTotal => cart.fold(0.0, (s, l) => s + l.foodTotal) + foodTotal;
 
   /// First selected bay — used for slot loading and single-name display.
   Bay? get bay => bays.isEmpty ? null : bays.first;

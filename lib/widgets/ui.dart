@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 
 /// Primary / secondary / ghost button.
@@ -122,7 +123,8 @@ class AppField extends StatelessWidget {
   final bool autofocus;
   final ValueChanged<String>? onChanged;
   final TextStyle? style;
-  const AppField({super.key, required this.icon, required this.hint, this.controller, this.keyboardType, this.autofocus = false, this.onChanged, this.style});
+  final List<TextInputFormatter>? inputFormatters;
+  const AppField({super.key, required this.icon, required this.hint, this.controller, this.keyboardType, this.autofocus = false, this.onChanged, this.style, this.inputFormatters});
 
   @override
   Widget build(BuildContext context) {
@@ -142,6 +144,7 @@ class AppField extends StatelessWidget {
             controller: controller,
             keyboardType: keyboardType,
             autofocus: autofocus,
+            inputFormatters: inputFormatters,
             onChanged: onChanged,
             style: style ?? const TextStyle(color: AppColors.text, fontSize: 15),
             cursorColor: AppColors.primary,

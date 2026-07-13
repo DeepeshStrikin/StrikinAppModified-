@@ -20,6 +20,8 @@ class AppUser {
   final int loyaltyPoints;
   // Date of birth as an ISO string (e.g. "1990-05-01T00:00:00.000Z"), nullable.
   final String? dob;
+  // Self-reported gender: male | female | other | prefer_not_to_say, nullable.
+  final String? gender;
   AppUser({
     this.name,
     this.email,
@@ -31,6 +33,7 @@ class AppUser {
     this.companyName,
     this.loyaltyPoints = 0,
     this.dob,
+    this.gender,
   });
   String get key => email ?? phone ?? guestSessionId ?? 'guest';
 
@@ -39,17 +42,23 @@ class AppUser {
   bool get isSuperAdmin => role == 'super_admin';
   bool get isTeamLead => role == 'team_lead';
 
-  AppUser copyWith({String? name, String? phone, String? dob, int? loyaltyPoints, String? companyName, bool clearDob = false}) => AppUser(
+  /// Whether we still need to collect demographic details (gender + DOB).
+  /// Corporate users are exempt (their profile is managed by the company).
+  bool get needsProfileDetails =>
+      !isCorporate && ((gender == null || gender!.isEmpty) || (dob == null || dob!.isEmpty));
+
+  AppUser copyWith({String? name, String? phone, String? dob, String? gender, int? loyaltyPoints, String? companyName, String? role, bool clearDob = false, bool clearGender = false, bool clearCompanyName = false}) => AppUser(
         name: name ?? this.name,
         email: email,
         phone: phone ?? this.phone,
         isGuest: isGuest,
         token: token,
         guestSessionId: guestSessionId,
-        role: role,
-        companyName: companyName ?? this.companyName,
+        role: role ?? this.role,
+        companyName: clearCompanyName ? null : (companyName ?? this.companyName),
         loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
         dob: clearDob ? null : (dob ?? this.dob),
+        gender: clearGender ? null : (gender ?? this.gender),
       );
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +72,7 @@ class AppUser {
         'companyName': companyName,
         'loyaltyPoints': loyaltyPoints,
         'dob': dob,
+        'gender': gender,
       };
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
         name: j['name'],
@@ -75,6 +85,7 @@ class AppUser {
         companyName: j['companyName'],
         loyaltyPoints: (j['loyaltyPoints'] is num) ? (j['loyaltyPoints'] as num).toInt() : 0,
         dob: j['dob'],
+        gender: j['gender'],
       );
 }
 
@@ -131,7 +142,10 @@ class AuthState extends ChangeNotifier {
       phone: me['phone']?.toString(),
       dob: me['dateOfBirth']?.toString(),
       clearDob: me.containsKey('dateOfBirth') && me['dateOfBirth'] == null,
+      gender: me['gender']?.toString(),
+      clearGender: me.containsKey('gender') && me['gender'] == null,
       loyaltyPoints: (me['loyaltyPoints'] is num) ? (me['loyaltyPoints'] as num).toInt() : null,
+      role: me['role']?.toString(),
       companyName: me['companyName']?.toString(),
     );
     notifyListeners();

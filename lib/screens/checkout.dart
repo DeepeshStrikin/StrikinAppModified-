@@ -1,4 +1,6 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../models.dart';
@@ -10,11 +12,7 @@ import '../widgets/scaffold.dart';
 import '../widgets/ui.dart';
 import 'activity_picker.dart';
 import 'confirmation.dart';
-
-const _gstRate = 0.18;
-
-String _month(int m) =>
-    const ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m];
+import 'terms.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -27,7 +25,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
-  DateTime? _dob;
   bool _busy = false;
   // Store the booking ID so retries reuse the same booking instead of creating
   // a new one (which causes 409 Conflict on the slot).
@@ -44,7 +41,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   int _loyaltyBalance = 0;
   int _loyaltyApplied = 0;
   double _loyaltyDiscount = 0;
-  bool _loyaltyBusy = false;
+  final bool _loyaltyBusy = false;
+  // Stable per-checkout key so a retried booking-create returns the same booking (M3 idempotency).
+  late final String _idempotencyKey;
+
+  // Live GST rates from admin (display only — the real charge is server-computed).
+  // Defaults match the standard rates until the fetch returns.
+  double _bayRate = 0.18;
+  double _foodRate = 0.05;
+
+  /// Estimated GST for the preview: activities at their rate, food at the restaurant rate.
+  double get _estGst => store.combinedBayTotal * _bayRate + store.combinedFoodTotal * _foodRate;
+
+  /// Order-summary label for the GST line. Shows the exact % when a single rate
+  /// applies; falls back to a generic label when activities + food differ.
+  String get _gstLabel {
+    String pct(double r) {
+      final v = r * 100;
+      return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+    }
+    if (store.combinedFoodTotal > 0 && _foodRate != _bayRate) {
+      return 'GST (CGST + SGST)';
+    }
+    final r = store.combinedBayTotal > 0 ? _bayRate : _foodRate;
+    return 'GST @ ${pct(r)}% (CGST ${pct(r / 2)}% + SGST ${pct(r / 2)}%)';
+  }
 
   // Payment method: 'wallet' (corporate) | 'upi' | 'card' | 'netbanking'.
   bool get _isCorporate => AuthState.instance.user?.isCorporate ?? false;
@@ -71,59 +92,43 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final u = AuthState.instance.user;
     if (u != null && !u.isGuest) {
       if ((u.name ?? '').isNotEmpty) _name.text = u.name!;
-      if ((u.phone ?? '').isNotEmpty) _phone.text = u.phone!;
+      if ((u.phone ?? '').isNotEmpty) {
+        // Normalise a saved number (may carry +91 / spaces) to the 10 digits the
+        // field validates against, so a valid saved phone doesn't block checkout.
+        var d = u.phone!.replaceAll(RegExp(r'\D'), '');
+        if (d.length > 10) d = d.substring(d.length - 10);
+        _phone.text = d;
+      }
       if ((u.email ?? '').isNotEmpty) _email.text = u.email!;
     }
     _loyaltyBalance = u?.loyaltyPoints ?? 0;
+    _idempotencyKey = '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7fffffff)}';
+    _loadTaxRates();
   }
 
-  Future<void> _applyLoyalty() async {
-    final base = store.combinedTotal;
-    final gst = base * _gstRate;
-    final billBeforeLoyalty = (base + gst - _discount).clamp(0, double.infinity).toDouble();
+  Future<void> _loadTaxRates() async {
+    try {
+      final rates = await Api.getTaxRates();
+      if (!mounted) return;
+      setState(() {
+        _bayRate = rates['bay_booking'] ?? _bayRate;
+        _foodRate = rates['food_restaurant'] ?? _foodRate;
+      });
+    } catch (_) {/* keep the default rates */}
+  }
+
+  /// Preview loyalty redemption locally (1 pt = ₹1). Points are NOT deducted
+  /// here — they're redeemed atomically on the server when the booking is
+  /// created, so nothing is lost if the user abandons checkout.
+  void _applyLoyalty() {
+    final billBeforeLoyalty = (_gross - _discount).clamp(0, double.infinity).toDouble();
     final maxRedeemable = billBeforeLoyalty.floor();
     final points = _loyaltyBalance < maxRedeemable ? _loyaltyBalance : maxRedeemable;
     if (points <= 0) return;
-    setState(() => _loyaltyBusy = true);
-    try {
-      final r = await Api.redeemLoyalty(points);
-      if (!mounted) return;
-      setState(() {
-        _loyaltyApplied = (r['pointsRedeemed'] as num?)?.toInt() ?? points;
-        _loyaltyDiscount = (r['discount'] as num?)?.toDouble() ?? points.toDouble();
-        _loyaltyBalance = (r['remainingPoints'] as num?)?.toInt() ?? (_loyaltyBalance - points);
-        _loyaltyBusy = false;
-      });
-      // Refresh the session so the Profile screen shows the reduced points too.
-      AuthState.instance.refreshProfile();
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() => _loyaltyBusy = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _loyaltyBusy = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not apply loyalty points.')));
-      }
-    }
-  }
-
-  Future<void> _pickDob() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _dob ?? DateTime(now.year - 20),
-      firstDate: DateTime(1940),
-      lastDate: now,
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: ColorScheme.dark(primary: AppColors.primary, onPrimary: AppColors.textOnAccent, surface: AppColors.surface),
-        ),
-        child: child!,
-      ),
-    );
-    if (picked != null) setState(() => _dob = picked);
+    setState(() {
+      _loyaltyApplied = points;
+      _loyaltyDiscount = points.toDouble();
+    });
   }
 
   bool get _phoneValid => _phone.text.replaceAll(RegExp(r'\D'), '').length == 10;
@@ -131,8 +136,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String get _phoneDigits => _phone.text.replaceAll(RegExp(r'\D'), '');
   // Gross = pre-tax bay/food + GST (server adds GST). Payable = gross − coupon discount.
   // combinedTotal spans every activity in the multi-activity cart + the current one.
-  double get _gross => store.combinedTotal * (1 + _gstRate);
-  double get _payable => (_gross - _discount).clamp(0, double.infinity).toDouble();
+  double get _gross => store.combinedTotal + _estGst;
+  /// Total discount is capped to the gross so coupon + loyalty can never exceed the bill.
+  double get _totalDiscount => (_discount + _loyaltyDiscount).clamp(0, _gross).toDouble();
+  double get _payable => (_gross - _totalDiscount).clamp(0, double.infinity).toDouble();
 
   Future<void> _applyCoupon() async {
     final code = _coupon.text.trim();
@@ -148,13 +155,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         bookingType: (AuthState.instance.user?.isGuest ?? false) ? 'guest' : 'b2c',
         activityTypeIds: store.activity != null ? [store.activity!.id] : null,
       );
+      if (!mounted) return;
       setState(() {
         _couponBusy = false;
         _offerId = r['offerId']?.toString();
-        _discount = (r['discountAmount'] as num?)?.toDouble() ?? 0;
+        _discount = double.tryParse('${r['discountAmount']}') ?? 0;
         _couponMsg = _discount > 0 ? 'Coupon applied — you save ${rupees(_discount)}' : 'Coupon applied';
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _couponBusy = false;
         _offerId = null;
@@ -162,6 +171,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _couponMsg = e.message;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _couponBusy = false;
         _offerId = null;
@@ -248,7 +258,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           foodOrders: store.buildAllFood(),
           bookingDate: store.date,
           offerId: _offerId,
-          discountAmount: (_discount + _loyaltyDiscount) > 0 ? _discount + _loyaltyDiscount : null,
+          discountAmount: _totalDiscount > 0 ? _totalDiscount : null,
+          loyaltyPoints: _loyaltyApplied > 0 ? _loyaltyApplied : null,
+          idempotencyKey: _idempotencyKey,
           paymentMethod: _bookingMethod,
         );
         _pendingBookingId = res.id;
@@ -315,6 +327,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     res.qrCode = await Api.getQr(res.id);
     _pendingBookingId = null;
     await store.recordBooking(res, status: 'upcoming');
+    // Points were redeemed server-side on the booking + fresh points earned on
+    // payment — refresh so the balance shown is correct.
+    if (_loyaltyApplied > 0 || !(AuthState.instance.user?.isGuest ?? true)) {
+      AuthState.instance.refreshProfile();
+    }
     if (!mounted) return;
     setState(() => _busy = false);
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ConfirmationScreen(result: res)));
@@ -326,8 +343,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       listenable: store,
       builder: (context, _) {
         final base = store.combinedTotal; // pre-tax bay + food across every activity
-        final gst = base * _gstRate;
-        final payable = (base + gst - _discount - _loyaltyDiscount).clamp(0, double.infinity).toDouble();
+        final gst = _estGst;
+        final payable = _payable;
         return Scaffold(
           backgroundColor: AppColors.background,
           body: SafeArea(
@@ -355,35 +372,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 const SizedBox(height: AppSpacing.lg),
                                 AppField(icon: Icons.person_outline, hint: 'Full name', controller: _name, onChanged: (_) => setState(() {})),
                                 const SizedBox(height: AppSpacing.md),
-                                AppField(icon: Icons.call_outlined, hint: 'Mobile number (10 digits)', controller: _phone, keyboardType: TextInputType.phone, onChanged: (_) => setState(() {})),
+                                AppField(icon: Icons.call_outlined, hint: 'Mobile number (10 digits)', controller: _phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], onChanged: (_) => setState(() {})),
                                 const SizedBox(height: AppSpacing.md),
                                 AppField(icon: Icons.mail_outline, hint: 'Email (optional)', controller: _email, keyboardType: TextInputType.emailAddress),
-                                const SizedBox(height: AppSpacing.md),
+                                const SizedBox(height: AppSpacing.sm),
                                 GestureDetector(
-                                  onTap: _pickDob,
-                                  child: Container(
-                                    height: 52,
-                                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.surface,
-                                      borderRadius: BorderRadius.circular(AppRadius.md),
-                                      border: Border.all(color: AppColors.border),
-                                    ),
-                                    child: Row(children: [
-                                      const Icon(Icons.cake_outlined, size: 18, color: AppColors.textFaint),
-                                      const SizedBox(width: AppSpacing.sm),
-                                      Expanded(
-                                        child: Text(
-                                          _dob == null ? 'Date of birth' : '${_dob!.day} ${_month(_dob!.month)} ${_dob!.year}',
-                                          style: TextStyle(color: _dob == null ? AppColors.textFaint : AppColors.text, fontSize: 15),
-                                        ),
-                                      ),
-                                      const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.textFaint),
+                                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())),
+                                  child: const Text.rich(
+                                    TextSpan(children: [
+                                      TextSpan(text: 'By signing up you agree to our '),
+                                      TextSpan(text: 'Terms & Conditions', style: TextStyle(color: AppColors.textMuted, decoration: TextDecoration.underline)),
+                                      TextSpan(text: ' and acknowledge the Disclaimer.'),
                                     ]),
+                                    style: TextStyle(color: AppColors.textFaint, fontSize: 12),
                                   ),
                                 ),
-                                const SizedBox(height: AppSpacing.sm),
-                                const Text('By signing up you agree to our Terms & Conditions and acknowledge the Disclaimer.', style: TextStyle(color: AppColors.textFaint, fontSize: 12)),
                               ],
                             ),
                           ),
@@ -396,7 +399,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 ..._activityLines(),
                                 const Divider(color: AppColors.border, height: AppSpacing.xl),
                                 _row('Taxable value', base, muted: true),
-                                _row('GST @ 18% (CGST 9% + SGST 9%)', gst, muted: true),
+                                _row(_gstLabel, gst, muted: true),
                                 const SizedBox(height: AppSpacing.sm),
                                 // Coupon
                                 Row(

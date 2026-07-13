@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../theme.dart';
+import '../widgets/profile_capture.dart';
 import 'home.dart';
 import 'bookings.dart';
 import 'corporate_cx.dart';
@@ -17,6 +18,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
   bool _maintenance = false;
+  bool _profilePrompted = false;
 
   @override
   void initState() {
@@ -25,6 +27,32 @@ class _AppShellState extends State<AppShell> {
     Api.maintenanceEnabled().then((m) {
       if (mounted && m) setState(() => _maintenance = true);
     });
+    // Backfill demographics: after the freshest profile loads, if this user is
+    // still missing gender / date of birth, ask once (skippable).
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await AuthState.instance.refreshProfile();
+      _maybePromptProfile();
+    });
+  }
+
+  /// Show the "complete your profile" sheet once if gender/DOB are missing.
+  Future<void> _maybePromptProfile() async {
+    if (_profilePrompted || !mounted) return;
+    final u = AuthState.instance.user;
+    if (u == null || u.isGuest || !u.needsProfileDetails) return;
+    _profilePrompted = true;
+    final askGender = u.gender == null || u.gender!.isEmpty;
+    final askDob = u.dob == null || u.dob!.isEmpty;
+    final res = await showCompleteProfileSheet(context, askGender: askGender, askDob: askDob);
+    if (res == null || !mounted) return;
+    try {
+      final dob = res['dob'] as DateTime?;
+      final me = await Api.updateProfile(
+        gender: res['gender'] as String?,
+        dateOfBirth: dob?.toIso8601String(),
+      );
+      await AuthState.instance.applyProfileUpdate(me);
+    } catch (_) {}
   }
 
   // Rebuild when the user logs in/out so a corporate login swaps the home tab.

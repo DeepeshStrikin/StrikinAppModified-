@@ -28,18 +28,25 @@ class _BookingsScreenState extends State<BookingsScreen> {
     BookingStore.instance.mergeServerBookings(rows.map((e) => MyBooking.fromServer(e)).toList());
   }
 
+  /// A booking is "past" once its slot date+time is before now (so a completed
+  /// game moves to History even if the server hasn't flipped its status yet).
+  bool _isPast(MyBooking b) {
+    final t = (b.time.contains(':')) ? b.time : '23:59';
+    final dt = DateTime.tryParse('${b.date}T$t:00') ?? DateTime.tryParse(b.date);
+    return dt != null && dt.isBefore(DateTime.now());
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: BookingStore.instance,
       builder: (context, _) {
-        // Upcoming = anything not finished/cancelled (incl. pay-at-venue pending).
-        // History = completed or cancelled bookings.
-        final list = BookingStore.instance.myBookings
-            .where((b) => _tab == 'upcoming'
-                ? (b.status != 'completed' && b.status != 'cancelled')
-                : (b.status == 'completed' || b.status == 'cancelled'))
-            .toList();
+        // Upcoming = not cancelled/completed AND the slot hasn't passed yet.
+        // History = completed, cancelled, OR the slot time is already in the past.
+        final list = BookingStore.instance.myBookings.where((b) {
+          final finished = b.status == 'completed' || b.status == 'cancelled' || _isPast(b);
+          return _tab == 'upcoming' ? !finished : finished;
+        }).toList();
         return Scaffold(
           backgroundColor: AppColors.background,
           body: SafeArea(

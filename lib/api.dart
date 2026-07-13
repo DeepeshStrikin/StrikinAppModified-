@@ -142,15 +142,21 @@ class Api {
 
   // ── Auth ───────────────────────────────────────────────────────────────────
 
-  /// Request a login OTP for an EXISTING account. Throws ApiException('NOT_FOUND')
-  /// if no account exists for this email (caller should switch to register).
-  static Future<void> requestLoginOtp(String email) async {
-    await _post('/auth/login', {'email': email});
+  /// Build the auth body key for an identifier — `email` if it looks like an
+  /// email, otherwise `phone`. The vendor auth endpoints accept `email || phone`.
+  static Map<String, String> _idField(String identifier) =>
+      identifier.contains('@') ? {'email': identifier} : {'phone': identifier};
+
+  /// Request a login OTP for an EXISTING account. [identifier] is an email or a
+  /// 10-digit mobile number (OTP goes by email or SMS accordingly). Throws
+  /// ApiException('NOT_FOUND') if no account exists (caller switches to register).
+  static Future<void> requestLoginOtp(String identifier) async {
+    await _post('/auth/login', _idField(identifier));
   }
 
   /// Verify a login OTP. Returns {token, role, fullName, requiresAccountSelection, accounts?}.
-  static Future<Map<String, dynamic>> loginVerify(String email, String otp) async {
-    final d = await _post('/auth/login/verify', {'email': email, 'otp': otp});
+  static Future<Map<String, dynamic>> loginVerify(String identifier, String otp) async {
+    final d = await _post('/auth/login/verify', {..._idField(identifier), 'otp': otp});
     return Map<String, dynamic>.from(d as Map);
   }
 
@@ -160,29 +166,75 @@ class Api {
     return Map<String, dynamic>.from(d as Map);
   }
 
-  /// Register a NEW account (sends a verification OTP to the email).
-  static Future<void> register({required String fullName, required String phone, String? email}) async {
+  /// Register a NEW account. A phone is always required; email + dateOfBirth are
+  /// optional. The verification OTP is sent by email if an email is given,
+  /// otherwise by SMS to the phone.
+  static Future<void> register({
+    required String fullName,
+    required String phone,
+    String? email,
+    DateTime? dateOfBirth,
+    String? gender,
+  }) async {
     await _post('/auth/register', {
       'fullName': fullName,
       'phone': phone,
       if (email != null && email.isNotEmpty) 'email': email,
+      if (dateOfBirth != null) 'dateOfBirth': dateOfBirth.toIso8601String(),
+      if (gender != null && gender.isNotEmpty) 'gender': gender,
     });
   }
 
-  /// Verify the registration OTP. Returns {token, role, fullName}.
-  static Future<Map<String, dynamic>> verifyRegisterOtp(String email, String otp) async {
-    final d = await _post('/auth/verify-otp', {'email': email, 'otp': otp});
+  /// Verify the registration OTP. [identifier] is whatever the OTP was sent to
+  /// (email if one was given at signup, otherwise the phone). Returns {token, role, fullName}.
+  static Future<Map<String, dynamic>> verifyRegisterOtp(String identifier, String otp) async {
+    // The verify-otp route reads the `email` key but the service treats it as a
+    // generic identifier (email or phone), so pass whichever was registered.
+    final d = await _post('/auth/verify-otp', {'email': identifier, 'otp': otp});
     return Map<String, dynamic>.from(d as Map);
   }
 
-  /// Resend a login OTP.
-  static Future<void> resendLoginOtp(String email) async {
-    await _post('/auth/resend-otp', {'email': email});
+  /// Resend a login OTP. [identifier] is an email or a 10-digit mobile number.
+  static Future<void> resendLoginOtp(String identifier) async {
+    await _post('/auth/resend-otp', _idField(identifier));
   }
 
-  /// Create an anonymous guest session (name + phone required). Returns {guestSessionId, token}.
-  static Future<Map<String, dynamic>> guestSession({required String fullName, required String phone}) async {
-    final d = await _post('/auth/guest', {'fullName': fullName, 'phone': phone});
+  /// Fetch the admin-managed Terms & Conditions + Disclaimer. Returns {terms, disclaimer, updatedAt}.
+  static Future<Map<String, dynamic>> getTerms() async {
+    final d = await _get('/legal/terms');
+    return Map<String, dynamic>.from(d as Map);
+  }
+
+  /// Fetch active GST rates as fractions keyed by service category
+  /// (e.g. {'bay_booking': 0.18, 'food_restaurant': 0.05}). For display only —
+  /// the real charge is computed server-side.
+  static Future<Map<String, double>> getTaxRates() async {
+    final d = await _get('/tax-config/rates');
+    final list = (d as List?) ?? [];
+    final map = <String, double>{};
+    for (final item in list) {
+      final m = Map<String, dynamic>.from(item as Map);
+      final cat = m['serviceCategory']?.toString();
+      final pct = double.tryParse('${m['gstRatePercent']}') ?? 0;
+      if (cat != null) map[cat] = pct / 100.0;
+    }
+    return map;
+  }
+
+  /// Create an anonymous guest session (name + phone required; gender + DOB optional).
+  /// Returns {guestSessionId, token}.
+  static Future<Map<String, dynamic>> guestSession({
+    required String fullName,
+    required String phone,
+    DateTime? dateOfBirth,
+    String? gender,
+  }) async {
+    final d = await _post('/auth/guest', {
+      'fullName': fullName,
+      'phone': phone,
+      if (dateOfBirth != null) 'dateOfBirth': dateOfBirth.toIso8601String(),
+      if (gender != null && gender.isNotEmpty) 'gender': gender,
+    });
     return Map<String, dynamic>.from(d as Map);
   }
 
@@ -216,6 +268,7 @@ class Api {
     String? fullName,
     String? phone,
     String? dateOfBirth,
+    String? gender,
     bool clearDob = false,
   }) async {
     final body = <String, dynamic>{};
@@ -226,6 +279,7 @@ class Api {
     } else if (dateOfBirth != null) {
       body['dateOfBirth'] = dateOfBirth;
     }
+    if (gender != null && gender.isNotEmpty) body['gender'] = gender;
     final d = await _patch('/auth/me', body);
     return Map<String, dynamic>.from(d as Map);
   }
@@ -501,6 +555,8 @@ class Api {
     String paymentMethod = 'upi',
     String? offerId,
     double? discountAmount,
+    int? loyaltyPoints,
+    String? idempotencyKey,
   }) async {
     final d = await _post(
       '/bookings',
@@ -511,6 +567,8 @@ class Api {
         'paymentMethod': paymentMethod,
         if (offerId != null && offerId.isNotEmpty) 'offerId': offerId,
         if (discountAmount != null && discountAmount > 0) 'discountAmount': discountAmount,
+        if (loyaltyPoints != null && loyaltyPoints > 0) 'loyaltyPoints': loyaltyPoints,
+        if (idempotencyKey != null && idempotencyKey.isNotEmpty) 'idempotencyKey': idempotencyKey,
       },
       timeout: _writeTimeout,
     );
