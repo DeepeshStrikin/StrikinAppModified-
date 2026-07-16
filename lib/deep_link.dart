@@ -3,6 +3,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'app_nav.dart';
 import 'screens/guest_invite.dart';
+import 'screens/corporate_cx.dart';
 
 /// Routes incoming deep links / App Links to the right screen.
 ///
@@ -59,11 +60,39 @@ class DeepLinkService {
     return null;
   }
 
+  /// Corporate team-join code from  strikin://corporate/join/<code>  (or the
+  /// https path form). Kept separate from booking invites so it opens the
+  /// company-join form rather than the guest booking screen.
+  static String? corporateJoinCodeFrom(Uri uri) {
+    final segs = [
+      if (uri.host.isNotEmpty) uri.host,
+      ...uri.pathSegments,
+    ].where((s) => s.isNotEmpty).toList();
+    final ci = segs.indexOf('corporate');
+    if (ci != -1 && ci + 2 < segs.length && segs[ci + 1] == 'join') return segs[ci + 2];
+    return null;
+  }
+
   void _handle(Uri uri) {
-    final token = inviteTokenFrom(uri);
-    if (token == null || token.isEmpty) return;
+    debugPrint('[deep_link] received: $uri');
     final nav = navigatorKey.currentState;
-    if (nav == null) return;
+    if (nav == null) {
+      debugPrint('[deep_link] navigator not ready — ignoring');
+      return;
+    }
+    // Corporate team-join links open the company-join form (not the booking invite).
+    final joinCode = corporateJoinCodeFrom(uri);
+    if (joinCode != null && joinCode.isNotEmpty) {
+      debugPrint('[deep_link] corporate join → code=$joinCode');
+      nav.push(MaterialPageRoute(builder: (_) => CxJoinScreen(code: joinCode)));
+      return;
+    }
+    final token = inviteTokenFrom(uri);
+    if (token == null || token.isEmpty) {
+      debugPrint('[deep_link] no invite/join token found in $uri');
+      return;
+    }
+    debugPrint('[deep_link] booking invite → token=$token');
     nav.push(MaterialPageRoute(builder: (_) => GuestInviteScreen(token: token)));
   }
 }

@@ -40,15 +40,19 @@ class _StrikinAppState extends State<StrikinApp> {
     // Web: if the app was opened from an invite link (?invite=TOKEN), show the
     // guest invite screen directly — guests don't need to log in.
     final inviteToken = kIsWeb ? Uri.base.queryParameters['invite'] : null;
+    // Corporate team-join link opened in a browser: ...?cjoin=<code>
+    final cjoinCode = kIsWeb ? Uri.base.queryParameters['cjoin'] : null;
     return MaterialApp(
       title: 'Strikin',
       navigatorKey: navigatorKey,
       navigatorObservers: [routeObserver],
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: (inviteToken != null && inviteToken.isNotEmpty)
-          ? GuestInviteScreen(token: inviteToken)
-          : const RootGate(),
+      home: (cjoinCode != null && cjoinCode.isNotEmpty)
+          ? CxJoinScreen(code: cjoinCode)
+          : (inviteToken != null && inviteToken.isNotEmpty)
+              ? GuestInviteScreen(token: inviteToken)
+              : const RootGate(),
     );
   }
 }

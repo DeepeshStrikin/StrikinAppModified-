@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -752,9 +754,12 @@ class _CxTeamSetupScreenState extends State<CxTeamSetupScreen> {
     setState(() => _busy = true);
     try {
       final res = await Api.corporateGenerateInvite();
+      final web = (res['webLink'] ?? '').toString();
       final deep = (res['deepLink'] ?? res['inviteLink'] ?? '').toString();
       final code = (res['inviteCode'] ?? '').toString();
-      final link = deep.isNotEmpty ? deep : 'https://strikin.app/join?code=$code';
+      // Prefer the web link — it opens in any browser (laptop or phone). The
+      // strikin:// deep link only works on a phone that has the app installed.
+      final link = web.isNotEmpty ? web : (deep.isNotEmpty ? deep : 'https://strikin.app/join?code=$code');
       if (mounted) setState(() => _inviteLink = link);
       await Share.share('Join our Strikin corporate team: $link');
     } on ApiException catch (e) {
@@ -854,13 +859,27 @@ class _CxTeamSetupScreenState extends State<CxTeamSetupScreen> {
     );
   }
 
+  // Generates the CSV template (Name · Position · Email) and opens the share
+  // sheet so the user can save / send it, then fill it in and upload it back.
+  Future<void> _downloadTemplate() async {
+    const csv = 'Name,Position,Email\n'
+        'Aarav Sharma,Manager,aarav@company.com\n'
+        'Diya Patel,Executive,diya@company.com\n';
+    final file = XFile.fromData(
+      Uint8List.fromList(utf8.encode(csv)),
+      name: 'strikin-team-template.csv',
+      mimeType: 'text/csv',
+    );
+    await Share.shareXFiles([file], text: 'Strikin — team members template. Columns: Name, Position, Email.');
+  }
+
   Widget _csvBox() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: _downloadTemplate,
               icon: const Icon(Icons.file_download_outlined, color: Colors.white, size: 20),
               label: const Text('Team members template',
                   style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
@@ -1799,12 +1818,13 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
             ),
             const Divider(color: Color(0xFF2E2E2E), height: 1),
             item(Icons.account_balance_wallet_outlined, 'Add money', () async {
+              if (!_requireVerified()) return;
               await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxPaymentPlanScreen()));
               _loadWallet();
             }),
             item(Icons.groups_outlined, 'Team members', () => go(const CxTeamDepartmentsScreen())),
             item(Icons.pie_chart_outline, 'Budget allocation', () => go(const CxBudgetScreen())),
-            item(Icons.sports_esports_outlined, 'Book activity', () => go(const CxSelectActivityScreen())),
+            item(Icons.sports_esports_outlined, 'Book activity', () { if (_requireVerified()) go(const CxSelectActivityScreen()); }),
             item(Icons.refresh, 'Refresh balance', _refresh),
             const Spacer(),
             const Divider(color: Color(0xFF2E2E2E), height: 1),
@@ -1838,6 +1858,7 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
                 ),
                 GestureDetector(
                   onTap: () async {
+                    if (!_requireVerified()) return;
                     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxPaymentPlanScreen()));
                     _loadWallet();
                   },
@@ -1876,6 +1897,16 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
   Future<void> _openKyc() async {
     final submitted = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CxKycScreen()));
     if (submitted == true) await _loadKyc();
+  }
+
+  // Booking + wallet top-ups are locked until the company's KYC is verified.
+  bool _requireVerified() {
+    if (_kyc == 2) return true;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Verify your company first to unlock booking and payments.'),
+      behavior: SnackBarBehavior.floating,
+    ));
+    return false;
   }
 
   // KYC status banner — shown on the dashboard until the company is approved.
@@ -1966,7 +1997,16 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
           if (done)
             GestureDetector(
               onTap: manage != null ? () => _begin(i, manage) : null,
-              child: const Text('Completed', style: TextStyle(color: _lime, fontSize: 14, fontWeight: FontWeight.w700)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Completed', style: TextStyle(color: _lime, fontSize: 14, fontWeight: FontWeight.w700)),
+                  if (manage != null) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.edit_outlined, color: _lime, size: 15),
+                  ],
+                ],
+              ),
             )
           else
             GestureDetector(
@@ -1984,6 +2024,9 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Once the company is verified and all three setup steps are done, drop the
+    // "Get Ready to Book" checklist and show the main dashboard (wallet + booking).
+    final setupComplete = _kyc == 2 && _done.length >= 3;
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: _bg,
@@ -2019,16 +2062,34 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
               children: [
                 _kycBanner(),
                 _walletCard(),
-                const Text('Get Ready to Book', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                const Text('Just a few steps away! Complete your setup to unlock bookings.',
-                    style: TextStyle(color: _muted, fontSize: 14, height: 1.4)),
-                const SizedBox(height: 22),
-                _setupCard(0, 'Payment set up', const CxPaymentPlanScreen()),
-                _setupCard(1, 'Team set up', const CxTeamSetupScreen(), manage: const CxTeamDepartmentsScreen()),
-                _setupCard(2, 'Budget allocation', const CxBudgetScreen()),
-                const SizedBox(height: 24),
-                _pill('Book activity', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxSelectActivityScreen()))),
+                if (!setupComplete) ...[
+                  const Text('Get Ready to Book', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  const Text('Just a few steps away! Complete your setup to unlock bookings.',
+                      style: TextStyle(color: _muted, fontSize: 14, height: 1.4)),
+                  const SizedBox(height: 22),
+                  _setupCard(0, 'Payment set up', const CxPaymentPlanScreen(), manage: const CxPaymentPlanScreen()),
+                  _setupCard(1, 'Team set up', const CxTeamSetupScreen(), manage: const CxTeamDepartmentsScreen()),
+                  _setupCard(2, 'Budget allocation', const CxBudgetScreen(), manage: const CxBudgetScreen()),
+                  const SizedBox(height: 24),
+                ] else ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _card,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: _lime.withValues(alpha: .55)),
+                    ),
+                    child: const Row(children: [
+                      Icon(Icons.check_circle, color: _lime, size: 22),
+                      SizedBox(width: 10),
+                      Expanded(child: Text("You're all set — book your next activity below.",
+                          style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700))),
+                    ]),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                _pill('Book activity', () { if (_requireVerified()) Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxSelectActivityScreen())); }),
                 const SizedBox(height: 32),
                 const Text('THE ADVENTURE MENU',
                     style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
@@ -2046,7 +2107,7 @@ class _CxDashboardScreenState extends State<CxDashboardScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: _carousel.length,
               itemBuilder: (c, i) => GestureDetector(
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxSelectActivityScreen())),
+                onTap: () { if (_requireVerified()) Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CxSelectActivityScreen())); },
                 child: Container(
                   width: 250,
                   margin: const EdgeInsets.only(right: 14),
@@ -3688,7 +3749,8 @@ class _CxMyTeamScreenState extends State<CxMyTeamScreen> {
     setState(() => _inviting = true);
     try {
       final res = await Api.corporateTeamInvite();
-      final link = (res['deepLink'] ?? res['inviteLink'] ?? '').toString();
+      final web = (res['webLink'] ?? '').toString();
+      final link = web.isNotEmpty ? web : (res['deepLink'] ?? res['inviteLink'] ?? '').toString();
       final code = (res['inviteCode'] ?? '').toString();
       final shareLink = link.isNotEmpty ? link : 'code: $code';
       if (mounted) await Share.share('Join my Strikin team: $shareLink');
@@ -4330,6 +4392,142 @@ class _CxCorporateSettingsState extends State<CxCorporateSettings> {
             _greyPill('Log out', () => AuthState.instance.logout()),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Corporate team join — opened from a strikin://corporate/join/<code> link ──
+// An employee fills in their details (name · position · phone · email) and is
+// added to the company as a member.
+class CxJoinScreen extends StatefulWidget {
+  final String code;
+  const CxJoinScreen({super.key, required this.code});
+  @override
+  State<CxJoinScreen> createState() => _CxJoinScreenState();
+}
+
+class _CxJoinScreenState extends State<CxJoinScreen> {
+  final _name = TextEditingController();
+  final _position = TextEditingController();
+  final _phone = TextEditingController();
+  final _email = TextEditingController();
+  bool _busy = false;
+  bool _done = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _position.dispose();
+    _phone.dispose();
+    _email.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _name.text.trim();
+    final phone = _phone.text.trim();
+    final email = _email.text.trim();
+    if (name.isEmpty || phone.isEmpty || email.isEmpty) {
+      setState(() => _error = 'Name, phone and email are required.');
+      return;
+    }
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _error = 'Enter a valid email address.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await Api.corporateJoinByCode(widget.code,
+          fullName: name, phone: phone, email: email, jobTitle: _position.text.trim().isEmpty ? null : _position.text.trim());
+      if (mounted) setState(() { _done = true; _busy = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _busy = false; });
+    }
+  }
+
+  Widget _input(String label, TextEditingController c, {TextInputType? kb, String? hint}) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: _muted, fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: c,
+            keyboardType: kb,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(color: Color(0xFF6A6A6A)),
+              filled: true,
+              fillColor: _field,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('Join your team', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+      ),
+      body: SafeArea(
+        child: _done
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.check_circle, color: _lime, size: 64),
+                    const SizedBox(height: 16),
+                    const Text("You're in!", style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    const Text('Your account has been added to the company. Log in with your email to start booking.',
+                        textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 14, height: 1.4)),
+                    const SizedBox(height: 24),
+                    _greyPill('Done', () => Navigator.of(context).popUntil((r) => r.isFirst)),
+                  ]),
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                children: [
+                  const Text('Join your company on Strikin', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  const Text('Fill in your details to be added to your company team.', style: TextStyle(color: _muted, fontSize: 14)),
+                  const SizedBox(height: 22),
+                  _input('Full name', _name, hint: 'e.g. Aarav Sharma'),
+                  _input('Position / role', _position, hint: 'e.g. Manager'),
+                  _input('Phone number', _phone, kb: TextInputType.phone, hint: '10-digit mobile'),
+                  _input('Email (mail ID)', _email, kb: TextInputType.emailAddress, hint: 'you@company.com'),
+                  if (_error != null)
+                    Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(_error!, style: const TextStyle(color: Color(0xFFE57373), fontSize: 13))),
+                  SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _lime,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      ),
+                      child: _busy
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF141414)))
+                          : const Text('Join team', style: TextStyle(color: Color(0xFF141414), fontSize: 15, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

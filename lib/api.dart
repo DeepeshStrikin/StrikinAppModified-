@@ -1133,11 +1133,12 @@ class Api {
 
   /// Join a company via an invite code (public — a brand-new employee). Returns {userId}.
   static Future<Map<String, dynamic>> corporateJoinByCode(String code,
-      {required String fullName, required String phone, required String email, String? dateOfBirth}) async {
+      {required String fullName, required String phone, required String email, String? jobTitle, String? dateOfBirth}) async {
     final d = await _post('/corporate/teams/join/$code', {
       'fullName': fullName,
       'phone': phone,
       'email': email,
+      if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
       if (dateOfBirth != null && dateOfBirth.isNotEmpty) 'dateOfBirth': dateOfBirth,
     });
     return Map<String, dynamic>.from(d as Map);

@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
+import 'app_nav.dart';
 import 'store.dart';
 
 class AppUser {
@@ -162,6 +164,9 @@ class AuthState extends ChangeNotifier {
     user = null;
     BookingStore.instance.clearSession();
     notifyListeners();
+    // Dismiss any pushed screen (e.g. a settings / profile page) so the login
+    // screen is actually revealed — wherever "Log out" was tapped.
+    navigatorKey.currentState?.popUntil((r) => r.isFirst);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
