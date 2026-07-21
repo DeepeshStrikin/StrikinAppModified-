@@ -53,6 +53,22 @@ ThemeData buildTheme() {
   );
 }
 
+/// Bottom padding that keeps content clear of the system UI on every device.
+///
+/// Covers both insets that bite at the bottom of the screen:
+///  * `viewPadding.bottom` — the Android navigation bar / gesture pill and the
+///    iPhone home indicator. This is the one that was overlapping our CTAs.
+///  * `viewInsets.bottom`  — the on-screen keyboard, when it is open.
+///
+/// Use it for any bar or sheet that sits at the bottom of the screen, e.g.
+/// `padding: EdgeInsets.only(bottom: bottomSafePad(context, extra: 16))`.
+/// Applying it *inside* the bar keeps the bar's own background full-bleed to
+/// the screen edge while lifting its content above the system UI.
+double bottomSafePad(BuildContext context, {double extra = 0}) {
+  final mq = MediaQuery.of(context);
+  return mq.viewInsets.bottom + mq.viewPadding.bottom + extra;
+}
+
 // Convenience text styles.
 class T {
   static const display = TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.text, height: 1.15);

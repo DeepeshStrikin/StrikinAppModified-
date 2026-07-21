@@ -155,7 +155,7 @@ class _CompleteProfileSheetState extends State<_CompleteProfileSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = bottomSafePad(context);
     return Padding(
       padding: EdgeInsets.only(
         left: AppSpacing.lg,

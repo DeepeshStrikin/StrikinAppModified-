@@ -12,7 +12,7 @@ import '../widgets/scaffold.dart';
 import '../widgets/ui.dart';
 
 /// Booking summary opened from "My bookings" — QR, details, players & food,
-/// extend session, host-pays-for-guests, invite management, and cancel.
+/// host-pays-for-guests, invite management, and cancel.
 class BookingSummaryScreen extends StatefulWidget {
   final MyBooking booking;
   const BookingSummaryScreen({super.key, required this.booking});
@@ -46,53 +46,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   List<Map<String, dynamic>> get _hostFood =>
       ((_game?['hostFoodOrders'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
   double get _unpaidTotal => toDouble(_game?['unpaidTotal']);
-
-  // ── Extend ───────────────────────────────────────────────────────────────────
-  Future<void> _extend(Map<String, dynamic> activity) async {
-    final itemId = (activity['bookingItemId'] ?? '').toString();
-    if (itemId.isEmpty) return;
-    setState(() => _busy = true);
-    final avail = await Api.extensionAvailability(b.id, itemId);
-    setState(() => _busy = false);
-    if (!mounted) return;
-    if (avail['available'] != true) {
-      _toast('No next slot free to extend into.');
-      return;
-    }
-    final partialFee = toDouble(avail['partialFee']);
-    final fullFee = toDouble(avail['fullFee']);
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surfaceAlt,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Extend ${activity['activityName'] ?? 'session'}', style: T.h2),
-          const SizedBox(height: 6),
-          const Text('Add time to your current slot.', style: T.caption),
-          const SizedBox(height: AppSpacing.lg),
-          _ExtendOption(label: 'Half extension', sub: 'Add half a session', price: partialFee, onTap: () => Navigator.pop(ctx, 'partial')),
-          const SizedBox(height: AppSpacing.sm),
-          _ExtendOption(label: 'Full extension', sub: 'Add a full session', price: fullFee, onTap: () => Navigator.pop(ctx, 'full')),
-          const SizedBox(height: AppSpacing.sm),
-        ]),
-      ),
-    );
-    if (choice == null) return;
-    setState(() => _busy = true);
-    try {
-      await Api.extendBooking(b.id, itemId, choice);
-      _toast('Session extended');
-      await _load();
-    } on ApiException catch (e) {
-      _toast(e.message);
-    } catch (_) {
-      _toast('Could not extend. Try again.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
 
   // ── Host pays for all guests' food ─────────────────────────────────────────────
   Future<void> _payGuestFood() async {
@@ -228,7 +181,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           final first = invites.isNotEmpty ? invites.first : null;
           final mustPay = first?['guestsMustPayForFood'] == true;
           return Padding(
-            padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: AppSpacing.lg + MediaQuery.of(ctx).viewInsets.bottom),
+            padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: bottomSafePad(ctx, extra: AppSpacing.lg)),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               const Text('Manage invites', style: T.h2),
               const SizedBox(height: AppSpacing.md),
@@ -333,7 +286,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             ),
           ),
 
-          // Activities + extend
+          // Activities
           if (_activities.isNotEmpty && cancellable) ...[
             const SizedBox(height: AppSpacing.lg),
             const Text('Your activities', style: T.bodyStrong),
@@ -342,17 +295,9 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                   child: AppCard(
                     padding: const EdgeInsets.all(AppSpacing.md),
-                    child: Row(children: [
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('${a['activityName'] ?? 'Activity'} · ${a['bayName'] ?? ''}', style: T.body),
-                          Text('${a['numPlayers'] ?? 1} players', style: T.caption),
-                        ]),
-                      ),
-                      TextButton(
-                        onPressed: _busy ? null : () => _extend(a),
-                        child: Text('Extend', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
-                      ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('${a['activityName'] ?? 'Activity'} · ${a['bayName'] ?? ''}', style: T.body),
+                      Text('${a['numPlayers'] ?? 1} players', style: T.caption),
                     ]),
                   ),
                 )),
@@ -445,30 +390,3 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 }
 
-class _ExtendOption extends StatelessWidget {
-  final String label, sub;
-  final double price;
-  final VoidCallback onTap;
-  const _ExtendOption({required this.label, required this.sub, required this.price, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(AppRadius.md), border: Border.all(color: AppColors.border)),
-        child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: T.bodyStrong),
-              Text(sub, style: T.caption),
-            ]),
-          ),
-          Text(rupees(price), style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
-  }
-}

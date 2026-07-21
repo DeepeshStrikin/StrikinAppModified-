@@ -772,35 +772,7 @@ class Api {
     }
   }
 
-  // ── Booking lifecycle: extend / game details / invite mgmt / guest food ───────
-
-  /// Whether a booking item can be extended. Returns {available, partialFee, fullFee, nextSlotTime}.
-  static Future<Map<String, dynamic>> extensionAvailability(String bookingId, String bookingItemId) async {
-    try {
-      final d = await _get('/bookings/$bookingId/items/$bookingItemId/extension');
-      return Map<String, dynamic>.from(d as Map);
-    } catch (_) {
-      return {'available': false};
-    }
-  }
-
-  /// Extend a booking item by one more slot. extensionType: 'partial' (50%) or 'full' (100%).
-  /// Auto-confirms in v1 (no separate payment step). Returns {extensionFee, updatedBookingTotal, ...}.
-  static Future<Map<String, dynamic>> extendBooking(String bookingId, String bookingItemId, String extensionType) async {
-    final d = await _post('/bookings/$bookingId/extend', {
-      'bookingItemId': bookingItemId,
-      'extensionType': extensionType,
-    });
-    return Map<String, dynamic>.from(d as Map);
-  }
-
-  /// Upgrade a partial extension to a full one. Returns {extensionFee, updatedBookingTotal, ...}.
-  static Future<Map<String, dynamic>> upgradeExtension(String bookingId, String extensionBookingItemId) async {
-    final d = await _post('/bookings/$bookingId/extend/upgrade', {
-      'extensionBookingItemId': extensionBookingItemId,
-    });
-    return Map<String, dynamic>.from(d as Map);
-  }
+  // ── Booking lifecycle: game details / invite mgmt / guest food ────────────────
 
   /// Rich game details: per-activity breakdown + players + their food + paid/unpaid + unpaidTotal.
   static Future<Map<String, dynamic>?> gameDetails(String bookingId, {String? bookingItemId}) async {

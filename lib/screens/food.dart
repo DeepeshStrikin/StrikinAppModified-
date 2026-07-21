@@ -135,7 +135,8 @@ class _FoodScreenState extends State<FoodScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg,
+                          bottomSafePad(context, extra: AppSpacing.lg)),
                       decoration: const BoxDecoration(color: AppColors.surfaceAlt, border: Border(top: BorderSide(color: AppColors.border))),
                       child: Column(
                         children: [

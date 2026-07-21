@@ -191,7 +191,7 @@ class ConfirmationScreen extends StatelessWidget {
                 const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Icon(Icons.notifications_none, size: 16, color: AppColors.textFaint),
                   SizedBox(width: AppSpacing.sm),
-                  Expanded(child: Text('QR & PIN sent via Email / SMS / WhatsApp. We\'ll remind you before your slot, and 15 min before it ends you can extend if the next slot is free.', style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
+                  Expanded(child: Text('QR & PIN sent via Email / SMS / WhatsApp. We\'ll remind you before your slot.', style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
                 ]),
 
                 // Guest → save this booking by creating a free account.
@@ -355,7 +355,7 @@ class _SaveBookingSheetState extends State<_SaveBookingSheet> {
   Widget build(BuildContext context) {
     final user = AuthState.instance.user;
     return Padding(
-      padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: AppSpacing.lg + MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: bottomSafePad(context, extra: AppSpacing.lg)),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const Text('Save your booking', style: T.h2),
         const SizedBox(height: 6),

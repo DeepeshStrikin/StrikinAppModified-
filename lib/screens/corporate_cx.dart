@@ -10,6 +10,7 @@ import '../auth.dart';
 import '../models.dart';
 import '../razorpay_checkout.dart';
 import '../store.dart';
+import '../theme.dart';
 import 'terms.dart';
 import 'activity_booking.dart';
 import 'bookings.dart';
@@ -635,7 +636,7 @@ class _CxSuperAdminScreenState extends State<CxSuperAdminScreen> {
         var busy = false;
         return StatefulBuilder(
           builder: (ctx, setSheet) => Padding(
-            padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 22),
+            padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 22)),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1072,7 +1073,7 @@ class _CxTeamMembersScreenState extends State<CxTeamMembersScreen> {
       backgroundColor: const Color(0xFF1A1A1A),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+        padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 20)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2375,7 +2376,7 @@ class _CxTeamDepartmentsScreenState extends State<CxTeamDepartmentsScreen> {
       backgroundColor: const Color(0xFF1A1A1A),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+        padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 20)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2409,7 +2410,7 @@ class _CxTeamDepartmentsScreenState extends State<CxTeamDepartmentsScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 20)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3541,7 +3542,7 @@ class _CxTeamLeadDashboardState extends State<CxTeamLeadDashboard> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 20)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3775,7 +3776,7 @@ class _CxMyTeamScreenState extends State<CxMyTeamScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          padding: EdgeInsets.only(left: 20, right: 20, top: 14, bottom: bottomSafePad(ctx, extra: 20)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

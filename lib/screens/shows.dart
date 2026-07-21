@@ -694,7 +694,7 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
             left: AppSpacing.lg,
             right: AppSpacing.lg,
             top: AppSpacing.lg,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.lg,
+            bottom: bottomSafePad(ctx, extra: AppSpacing.lg),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

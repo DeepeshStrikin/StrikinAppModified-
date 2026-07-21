@@ -296,7 +296,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = bottomSafePad(context);
     return Padding(
       padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: AppSpacing.lg + bottomInset),
       child: Column(
@@ -425,7 +425,7 @@ class _ContactOtpSheetState extends State<_ContactOtpSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = bottomSafePad(context);
     final label = widget.field == 'email' ? 'email' : 'mobile number';
     return Padding(
       padding: EdgeInsets.only(left: AppSpacing.lg, right: AppSpacing.lg, top: AppSpacing.lg, bottom: AppSpacing.lg + bottomInset),

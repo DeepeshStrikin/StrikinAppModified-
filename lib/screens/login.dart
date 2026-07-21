@@ -554,7 +554,7 @@ class _GuestDialogState extends State<_GuestDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bottomInset = bottomSafePad(context);
     return Padding(
       padding: EdgeInsets.only(
         left: AppSpacing.lg,

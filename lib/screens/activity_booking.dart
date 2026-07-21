@@ -76,21 +76,10 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
   /// Generic bay grid for non-themed tiers (Standard/VIP): a header image + a
   /// "Bay 1, Bay 2 …" grid (4 per row), selected tiles outlined in lime.
   Widget _bayGrid(List<Bay> bays) {
-    final img = bays.isNotEmpty && bays.first.image.isNotEmpty
-        ? bays.first.image
-        : (store.activity?.image ?? '');
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (img.isNotEmpty) ...[
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            child: Image(image: appImg(img), height: 160, width: double.infinity, fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(height: 160, color: AppColors.surfaceElevated)),
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
-        GridView.builder(
+    // No hero image here on purpose: the activity photo is already shown earlier
+    // in the flow, and a 160px image between the heading and the grid pushed the
+    // bays off-screen (and left a dead gap whenever the image failed to load).
+    return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
@@ -126,8 +115,6 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
               ),
             );
           },
-        ),
-      ],
     );
   }
 
