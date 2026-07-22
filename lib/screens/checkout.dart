@@ -26,6 +26,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _phone = TextEditingController();
   final _email = TextEditingController();
   bool _busy = false;
+  // When we already know the booker (logged-in user OR guest who gave details
+  // at entry), we show a compact "Booking as …" summary instead of re-asking.
+  // Starts true only when name/phone are missing, or when the user taps Edit.
+  bool _editContact = false;
   // Store the booking ID so retries reuse the same booking instead of creating
   // a new one (which causes 409 Conflict on the slot).
   String? _pendingBookingId;
@@ -85,12 +89,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
+  /// One labelled row in the compact "Booking as …" summary.
+  Widget _contactLine(IconData icon, String text) => Row(children: [
+        Icon(icon, size: 18, color: AppColors.textMuted),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: T.body)),
+      ]);
+
   @override
   void initState() {
     super.initState();
-    // Prefill from the logged-in profile (corporate / b2c).
+    // Prefill from whoever is signed in — registered, corporate OR guest.
+    // Guests give their name + phone at entry too, so there's no reason to ask
+    // again here; we only fall back to the form when something is genuinely
+    // missing.
     final u = AuthState.instance.user;
-    if (u != null && !u.isGuest) {
+    if (u != null) {
       if ((u.name ?? '').isNotEmpty) _name.text = u.name!;
       if ((u.phone ?? '').isNotEmpty) {
         // Normalise a saved number (may carry +91 / spaces) to the 10 digits the
@@ -101,6 +115,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
       if ((u.email ?? '').isNotEmpty) _email.text = u.email!;
     }
+    // Show the compact summary when we already have name + valid phone;
+    // otherwise open the form so the missing details can be filled in.
+    _editContact = !_valid;
     _loyaltyBalance = u?.loyaltyPoints ?? 0;
     _idempotencyKey = '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(0x7fffffff)}';
     _loadTaxRates();
@@ -323,8 +340,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     // else: paid fully from the corporate wallet — already confirmed server-side.
 
-    // 5. Fetch the QR (generated on confirmation) and finish.
-    res.qrCode = await Api.getQr(res.id);
+    // 5. Fetch the QR + check-in PIN (generated on confirmation) and finish.
+    final cred = await Api.getQr(res.id);
+    res.qrCode = cred['qr'] ?? '';
+    res.pin = cred['pin'] ?? '';
     _pendingBookingId = null;
     await store.recordBooking(res, status: 'upcoming');
     // Points were redeemed server-side on the booking + fresh points earned on
@@ -366,21 +385,41 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text("How you'd like to continue?", style: T.h3),
-                                const SizedBox(height: 4),
-                                const Text('To complete your booking we need a few quick details. A mobile number is mandatory for every participant.', style: T.caption),
-                                const SizedBox(height: AppSpacing.lg),
-                                AppField(icon: Icons.person_outline, hint: 'Full name', controller: _name, onChanged: (_) => setState(() {})),
+                                if (_editContact) ...[
+                                  const Text('Your details', style: T.h3),
+                                  const SizedBox(height: 4),
+                                  const Text('A mobile number is mandatory for every participant.', style: T.caption),
+                                  const SizedBox(height: AppSpacing.lg),
+                                  AppField(icon: Icons.person_outline, hint: 'Full name', controller: _name, onChanged: (_) => setState(() {})),
+                                  const SizedBox(height: AppSpacing.md),
+                                  AppField(icon: Icons.call_outlined, hint: 'Mobile number (10 digits)', controller: _phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], onChanged: (_) => setState(() {})),
+                                  const SizedBox(height: AppSpacing.md),
+                                  AppField(icon: Icons.mail_outline, hint: 'Email (optional)', controller: _email, keyboardType: TextInputType.emailAddress),
+                                ] else ...[
+                                  Row(
+                                    children: [
+                                      const Expanded(child: Text('Booking as', style: T.h3)),
+                                      GestureDetector(
+                                        onTap: () => setState(() => _editContact = true),
+                                        child: Text('Edit', style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  _contactLine(Icons.person_outline, _name.text.trim()),
+                                  const SizedBox(height: 8),
+                                  _contactLine(Icons.call_outlined, _phoneDigits),
+                                  if (_email.text.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    _contactLine(Icons.mail_outline, _email.text.trim()),
+                                  ],
+                                ],
                                 const SizedBox(height: AppSpacing.md),
-                                AppField(icon: Icons.call_outlined, hint: 'Mobile number (10 digits)', controller: _phone, keyboardType: TextInputType.phone, inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)], onChanged: (_) => setState(() {})),
-                                const SizedBox(height: AppSpacing.md),
-                                AppField(icon: Icons.mail_outline, hint: 'Email (optional)', controller: _email, keyboardType: TextInputType.emailAddress),
-                                const SizedBox(height: AppSpacing.sm),
                                 GestureDetector(
                                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())),
                                   child: const Text.rich(
                                     TextSpan(children: [
-                                      TextSpan(text: 'By signing up you agree to our '),
+                                      TextSpan(text: 'By continuing you agree to our '),
                                       TextSpan(text: 'Terms & Conditions', style: TextStyle(color: AppColors.textMuted, decoration: TextDecoration.underline)),
                                       TextSpan(text: ' and acknowledge the Disclaimer.'),
                                     ]),

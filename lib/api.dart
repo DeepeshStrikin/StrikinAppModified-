@@ -621,14 +621,19 @@ class Api {
     }
   }
 
-  /// Fetch the QR code for a confirmed booking. Returns the QR payload string or ''.
-  static Future<String> getQr(String bookingId) async {
+  /// Fetch the check-in credentials for a confirmed booking.
+  /// Returns `{'qr': <payload>, 'pin': <4-digit>}` (either may be '').
+  static Future<Map<String, String>> getQr(String bookingId) async {
     try {
       final d = await _get('/bookings/$bookingId/qr');
-      return (d is Map ? (d['qrCode'] ?? '') : '').toString();
-    } catch (_) {
-      return '';
-    }
+      if (d is Map) {
+        return {
+          'qr': (d['qrCode'] ?? '').toString(),
+          'pin': (d['pin'] ?? '').toString(),
+        };
+      }
+    } catch (_) {/* fall through to empty */}
+    return const {'qr': '', 'pin': ''};
   }
 
   /// Server-side booking history (confirmed bookings only). Returns raw maps.

@@ -154,10 +154,31 @@ class ConfirmationScreen extends StatelessWidget {
                                 ),
                         ),
                       ),
+                      if (result.pin.isNotEmpty) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              const Text('Check-in PIN', style: T.caption),
+                              const SizedBox(width: 12),
+                              Text(result.pin, style: T.h2.copyWith(color: AppColors.primary, fontWeight: FontWeight.w800, letterSpacing: 6)),
+                            ]),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: AppSpacing.md),
-                      const Center(
-                        child: Text('Show your QR code at the bay entrance to start your game.',
-                            textAlign: TextAlign.center, style: T.caption),
+                      Center(
+                        child: Text(
+                          result.pin.isNotEmpty
+                              ? 'Show the QR code, or read out your PIN, at the entrance.'
+                              : 'Show your QR code at the bay entrance to start your game.',
+                          textAlign: TextAlign.center, style: T.caption),
                       ),
                       const SizedBox(height: 4),
                       const Center(
@@ -191,7 +212,7 @@ class ConfirmationScreen extends StatelessWidget {
                 const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Icon(Icons.notifications_none, size: 16, color: AppColors.textFaint),
                   SizedBox(width: AppSpacing.sm),
-                  Expanded(child: Text('QR & PIN sent via Email / SMS / WhatsApp. We\'ll remind you before your slot.', style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
+                  Expanded(child: Text('Your QR code and PIN are saved under My Profile > Order History. We\'ll remind you before your slot.', style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
                 ]),
 
                 // Guest → save this booking by creating a free account.

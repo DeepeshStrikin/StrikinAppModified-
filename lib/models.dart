@@ -155,14 +155,14 @@ class CartFood {
 }
 
 /// Result of creating a booking. The vendor backend computes [totalAmount]
-/// (incl. GST) server-side and returns it as a string. [qrCode] is null until the
-/// payment is verified — it's filled afterwards from GET /bookings/:id/qr, hence
-/// it's mutable. [pin] and [loyaltyEarned] have no source in the vendor backend
-/// and are kept (empty/zero) only so existing UI compiles; the UI hides them.
+/// (incl. GST) server-side and returns it as a string. [qrCode] and [pin] are
+/// null until the payment is verified — they're filled afterwards from
+/// GET /bookings/:id/qr, hence they're mutable. [loyaltyEarned] has no source
+/// in the vendor backend and is kept (zero) only so existing UI compiles.
 class BookingResult {
   final String id, status;
   String qrCode;
-  final String pin;
+  String pin;
   final double totalAmount;
   final int loyaltyEarned;
   BookingResult({

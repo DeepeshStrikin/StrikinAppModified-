@@ -242,7 +242,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final cancellable = b.status == 'upcoming';
+    final expired = bookingIsExpired(b);
+    final cancellable = b.status == 'upcoming' && !expired;
     final hostPaid = _game?['hostPaid'] == true;
     return AppScaffold(
       child: Column(
@@ -262,16 +263,63 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 Text('${b.bay} · ${b.date} · ${b.time}', style: T.caption),
                 const SizedBox(height: AppSpacing.lg),
                 Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(AppRadius.md)),
-                    child: b.id.isNotEmpty
-                        ? QrImageView(data: b.id, size: 170, backgroundColor: AppColors.white)
-                        : const SizedBox(width: 170, height: 170, child: Center(child: Text('QR unavailable', style: TextStyle(color: Colors.black54, fontSize: 12)))),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(AppRadius.md)),
+                        child: b.id.isNotEmpty
+                            ? QrImageView(data: b.id, size: 170, backgroundColor: AppColors.white)
+                            : const SizedBox(width: 170, height: 170, child: Center(child: Text('QR unavailable', style: TextStyle(color: Colors.black54, fontSize: 12)))),
+                      ),
+                      // Expired bookings keep the QR visible but clearly void it,
+                      // so nobody tries to scan a code that no longer works.
+                      if (expired)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xCC000000),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text('EXPIRED',
+                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 2)),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
+                if (b.pin.isNotEmpty && !expired) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Text('Check-in PIN', style: T.caption),
+                        const SizedBox(width: 12),
+                        Text(b.pin, style: T.h2.copyWith(color: AppColors.primary, fontWeight: FontWeight.w800, letterSpacing: 6)),
+                      ]),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
-                const Center(child: Text('Show your QR code at the bay entrance to start your game.', textAlign: TextAlign.center, style: T.caption)),
+                Center(
+                  child: Text(
+                    expired
+                        ? 'This booking has expired — the slot time has passed.'
+                        : b.pin.isNotEmpty
+                            ? 'Show the QR code, or read out your PIN, at the entrance.'
+                            : 'Show your QR code at the bay entrance to start your game.',
+                    textAlign: TextAlign.center,
+                    style: T.caption,
+                  ),
+                ),
                 const Divider(color: AppColors.border, height: AppSpacing.xl),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Amount', style: T.caption),
@@ -280,7 +328,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   const Text('Status', style: T.caption),
-                  Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
+                  Tag(bookingEffectiveLabel(b), tone: bookingEffectiveTone(b)),
                 ]),
               ],
             ),

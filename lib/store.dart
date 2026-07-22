@@ -30,6 +30,31 @@ String bookingStatusTone(String s) {
   }
 }
 
+/// Whether a booking's slot date+time is already in the past.
+/// Falls back to end-of-day when the time is missing, and to the raw date
+/// when the timestamp can't be parsed.
+bool bookingIsPast(MyBooking b) {
+  final t = b.time.contains(':') ? b.time : '23:59';
+  final dt = DateTime.tryParse('${b.date}T$t:00') ?? DateTime.tryParse(b.date);
+  return dt != null && dt.isBefore(DateTime.now());
+}
+
+/// A booking is "expired" when its slot has already passed but it was never
+/// completed or cancelled — i.e. it still reads as upcoming / pending. The
+/// server's nightly job may not have flipped it yet (and in production that
+/// job isn't scheduled), so the app decides expiry itself: an expired booking
+/// has no usable QR and must not say "start your game".
+bool bookingIsExpired(MyBooking b) =>
+    (b.status == 'upcoming' || b.status == 'pending_payment') && bookingIsPast(b);
+
+/// Status label that accounts for client-side expiry (shows EXPIRED).
+String bookingEffectiveLabel(MyBooking b) =>
+    bookingIsExpired(b) ? 'EXPIRED' : bookingStatusLabel(b.status);
+
+/// Status tone that accounts for client-side expiry (greys out EXPIRED).
+String bookingEffectiveTone(MyBooking b) =>
+    bookingIsExpired(b) ? 'neutral' : bookingStatusTone(b.status);
+
 /// A booking the user has actually made (kept per-user, persisted locally,
 /// also stored server-side in the cloud DB).
 class MyBooking {
@@ -93,7 +118,7 @@ class MyBooking {
       time: time,
       status: (j['status'] ?? 'upcoming').toString(),
       qr: (j['qrCode'] ?? '').toString(),
-      pin: '',
+      pin: (j['pin'] ?? '').toString(),
       amount: toDouble(j['totalAmount']),
       loyalty: 0,
       createdAtMs: _parseMs(j['createdAt']),

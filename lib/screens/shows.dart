@@ -657,9 +657,11 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
       }
     }
 
-    // 4. Fetch the QR, record locally, and show the ticket.
-    final qr = await Api.getQr(bookingId);
-    final res = BookingResult(id: bookingId, status: 'upcoming', totalAmount: amount, qrCode: qr);
+    // 4. Fetch the QR + check-in PIN, record locally, and show the ticket.
+    final cred = await Api.getQr(bookingId);
+    final qr = cred['qr'] ?? '';
+    final pin = cred['pin'] ?? '';
+    final res = BookingResult(id: bookingId, status: 'upcoming', totalAmount: amount, qrCode: qr, pin: pin);
     await store.recordBookingRow(MyBooking(
       id: bookingId,
       activity: store.activity?.name ?? 'Mega Screen',
@@ -668,7 +670,7 @@ class _SeatPickerScreenState extends State<SeatPickerScreen> {
       time: widget.show.startTime,
       status: 'upcoming',
       qr: qr,
-      pin: '',
+      pin: pin,
       amount: amount,
       loyalty: 0,
       createdAtMs: DateTime.now().millisecondsSinceEpoch,

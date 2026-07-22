@@ -30,11 +30,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   /// A booking is "past" once its slot date+time is before now (so a completed
   /// game moves to History even if the server hasn't flipped its status yet).
-  bool _isPast(MyBooking b) {
-    final t = (b.time.contains(':')) ? b.time : '23:59';
-    final dt = DateTime.tryParse('${b.date}T$t:00') ?? DateTime.tryParse(b.date);
-    return dt != null && dt.isBefore(DateTime.now());
-  }
+  bool _isPast(MyBooking b) => bookingIsPast(b);
 
   @override
   Widget build(BuildContext context) {
@@ -191,7 +187,7 @@ class _BookingCard extends StatelessWidget {
                       children: [
                         Expanded(child: Text(b.activity, style: T.h3, overflow: TextOverflow.ellipsis)),
                         const SizedBox(width: AppSpacing.sm),
-                        Tag(bookingStatusLabel(b.status), tone: bookingStatusTone(b.status)),
+                        Tag(bookingEffectiveLabel(b), tone: bookingEffectiveTone(b)),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -206,11 +202,16 @@ class _BookingCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(rupees(b.amount), style: T.bodyStrong),
-              Row(children: [
-                Icon(Icons.qr_code, size: 16, color: AppColors.primary),
-                const SizedBox(width: 6),
-                Text(b.pin.isNotEmpty ? 'PIN ${b.pin}' : 'QR', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
-              ]),
+              Builder(builder: (_) {
+                final expired = bookingIsExpired(b);
+                final c = expired ? AppColors.textFaint : AppColors.primary;
+                return Row(children: [
+                  Icon(expired ? Icons.qr_code_2 : Icons.qr_code, size: 16, color: c),
+                  const SizedBox(width: 6),
+                  Text(expired ? 'Expired' : (b.pin.isNotEmpty ? 'PIN ${b.pin}' : 'QR'),
+                      style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.w600)),
+                ]);
+              }),
             ],
           ),
         ],
