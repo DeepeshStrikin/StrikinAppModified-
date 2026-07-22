@@ -37,7 +37,7 @@ class ConfirmationScreen extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, bottomSafePad(ctx, extra: AppSpacing.lg)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,7 +87,7 @@ class ConfirmationScreen extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (_) => _SaveBookingSheet(guestSessionId: gid),
+      builder: (_) => SaveBookingSheet(guestSessionId: gid),
     );
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -283,14 +283,14 @@ class ConfirmationScreen extends StatelessWidget {
 
 /// Guest → real account: register with the guest's name + phone + an email,
 /// verify the OTP, then claim the guest's bookings onto the new account.
-class _SaveBookingSheet extends StatefulWidget {
+class SaveBookingSheet extends StatefulWidget {
   final String guestSessionId;
-  const _SaveBookingSheet({required this.guestSessionId});
+  const SaveBookingSheet({super.key, required this.guestSessionId});
   @override
-  State<_SaveBookingSheet> createState() => _SaveBookingSheetState();
+  State<SaveBookingSheet> createState() => SaveBookingSheetState();
 }
 
-class _SaveBookingSheetState extends State<_SaveBookingSheet> {
+class SaveBookingSheetState extends State<SaveBookingSheet> {
   final _email = TextEditingController();
   final _code = TextEditingController();
   String _step = 'email'; // email | otp

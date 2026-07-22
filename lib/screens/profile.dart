@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../api.dart';
 import '../auth.dart';
 import '../theme.dart';
 import '../widgets/scaffold.dart';
 import '../widgets/ui.dart';
+import 'confirmation.dart';
 import 'corporate_cx.dart';
 import 'notifications.dart';
 
@@ -30,6 +32,89 @@ class ProfileScreen extends StatelessWidget {
       if (ok != true) return;
     }
     AuthState.instance.logout();
+  }
+
+  /// Info rows that have no dedicated screen (Payment methods, Security,
+  /// Help & support) open a short explainer sheet instead of a dead
+  /// "Coming soon" toast.
+  void _showInfoRow(BuildContext context, String title) {
+    String body;
+    // (icon, value-to-copy) pairs shown as tappable contact rows.
+    List<(IconData, String)> contacts = const [];
+    switch (title) {
+      case 'Payment methods':
+        body = 'You pay securely at checkout with UPI, cards, or net-banking via Razorpay. '
+            'For your safety, Strikin never stores your card details.';
+        break;
+      case 'Security':
+        body = "You sign in with a one-time code (OTP) sent to your email or phone — "
+            "there's no password to remember or leak. Never share your OTP with anyone.";
+        break;
+      case 'Help & support':
+        body = 'Questions about a booking, payment, or your account? Reach us any time — tap to copy.';
+        contacts = const [(Icons.mail_outline, 'hello@strikin.com')];
+        break;
+      default:
+        body = '';
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surfaceAlt,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, bottomSafePad(ctx, extra: AppSpacing.lg)),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: T.h2),
+          const SizedBox(height: AppSpacing.sm),
+          Text(body, style: T.caption),
+          for (final c in contacts) ...[
+            const SizedBox(height: AppSpacing.md),
+            InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: c.$2));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(children: [
+                  Icon(c.$1, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(c.$2, style: T.body)),
+                  const Icon(Icons.copy, size: 16, color: AppColors.textFaint),
+                ]),
+              ),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  /// Up to two initials for the avatar (e.g. "Rajesh Kumar" → "RK").
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
+
+  /// Guest upgrade: open the register → verify → claim-bookings sheet. On
+  /// success the guest is logged in as a real account (bookings carried over).
+  Future<void> _createAccount(BuildContext context, AppUser? user) async {
+    final gid = user?.guestSessionId ?? '';
+    if (gid.isEmpty) return;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (_) => SaveBookingSheet(guestSessionId: gid),
+    );
+    if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created — welcome to Strikin!')));
+    }
   }
 
   Future<void> _openEdit(BuildContext context, AppUser user) async {
@@ -79,8 +164,12 @@ class ProfileScreen extends StatelessWidget {
                       Container(
                         width: 56,
                         height: 56,
+                        alignment: Alignment.center,
                         decoration: BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                        child: const Icon(Icons.person, color: AppColors.textOnAccent, size: 28),
+                        child: (!isGuest && (user?.name ?? '').trim().isNotEmpty)
+                            ? Text(_initials(user!.name!),
+                                style: const TextStyle(color: AppColors.textOnAccent, fontSize: 22, fontWeight: FontWeight.w700))
+                            : const Icon(Icons.person, color: AppColors.textOnAccent, size: 28),
                       ),
                       const SizedBox(width: AppSpacing.lg),
                       Expanded(
@@ -105,6 +194,26 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
               ),
+              // Guests get a clear upgrade path to a real account.
+              if (isGuest) ...[
+                const SizedBox(height: AppSpacing.md),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(Icons.workspace_premium_outlined, color: AppColors.primary, size: 22),
+                        const SizedBox(width: 10),
+                        const Expanded(child: Text('Create a free account', style: T.bodyStrong)),
+                      ]),
+                      const SizedBox(height: 6),
+                      const Text('Save your bookings, keep your QR codes & PINs, and earn loyalty points.', style: T.caption),
+                      const SizedBox(height: AppSpacing.md),
+                      AppButton('Create account', onPressed: () => _createAccount(context, user)),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               AppCard(
                 padding: EdgeInsets.zero,
@@ -113,7 +222,7 @@ class ProfileScreen extends StatelessWidget {
                     for (int i = 0; i < rows.length; i++) ...[
                       InkWell(
                         onTap: rows[i].$4 == null
-                            ? () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coming soon')))
+                            ? () => _showInfoRow(context, rows[i].$2)
                             : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => rows[i].$4!)),
                         child: Padding(
                           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -143,7 +252,7 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: AppSpacing.xl),
               AppButton('Log out', variant: 'secondary', onPressed: () => _logout(context)),
               const SizedBox(height: AppSpacing.lg),
-              Center(child: Text('Strikin v1.0.0 · API ${Api.baseUrl}', style: const TextStyle(color: AppColors.textFaint, fontSize: 12))),
+              const Center(child: Text('Strikin v1.0.0', style: TextStyle(color: AppColors.textFaint, fontSize: 12))),
             ],
           ),
         );

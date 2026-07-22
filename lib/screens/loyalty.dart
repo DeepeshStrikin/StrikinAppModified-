@@ -29,6 +29,7 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
       builder: (context, _) {
         final store = BookingStore.instance;
         final user = AuthState.instance.user;
+        final isGuest = user?.isGuest == true;
         final pts = user?.loyaltyPoints ?? 0;
         const nextTier = 1000;
         final progress = (pts / nextTier).clamp(0.0, 1.0);
@@ -103,16 +104,22 @@ class _LoyaltyScreenState extends State<LoyaltyScreen> {
               const SizedBox(height: AppSpacing.xl),
               const Text('Points activity', style: T.h3),
               const SizedBox(height: AppSpacing.md),
-              if (store.myBookings.isEmpty)
+              if (isGuest || store.myBookings.isEmpty)
                 AppCard(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                    child: Column(children: const [
-                      Icon(Icons.diamond_outlined, size: 32, color: AppColors.textFaint),
-                      SizedBox(height: AppSpacing.sm),
-                      Text('No points yet', style: T.body),
-                      SizedBox(height: 2),
-                      Text('Earn points every time you complete a booking.', textAlign: TextAlign.center, style: T.caption),
+                    child: Column(children: [
+                      const Icon(Icons.diamond_outlined, size: 32, color: AppColors.textFaint),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(isGuest ? 'Points need an account' : 'No points yet', style: T.body),
+                      const SizedBox(height: 2),
+                      Text(
+                        isGuest
+                            ? 'Guest bookings don’t earn points. Create a free account to start earning and keep them.'
+                            : 'Earn points every time you complete a booking.',
+                        textAlign: TextAlign.center,
+                        style: T.caption,
+                      ),
                     ]),
                   ),
                 )

@@ -181,11 +181,19 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
     if (picked != null) store.setPlayers(picked);
   }
 
+  // Tracks the bay/table fetch so the picker shows a spinner while loading and
+  // a clear message if nothing comes back — never a silent blank area.
+  bool _baysLoading = true;
+
   @override
   void initState() {
     super.initState();
     if (store.activity != null) {
-      Api.getBays(store.activity!.id).then((b) => setState(() => _bays = b));
+      Api.getBays(store.activity!.id).then((b) {
+        if (mounted) setState(() { _bays = b; _baysLoading = false; });
+      });
+    } else {
+      _baysLoading = false;
     }
   }
 
@@ -363,6 +371,19 @@ class _ActivityBookingScreenState extends State<ActivityBookingScreen> {
                             const SizedBox(height: AppSpacing.xl),
                             Text(selectLabel, style: T.h3),
                             const SizedBox(height: AppSpacing.sm),
+                            if (_baysLoading)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                              )
+                            else if (_tiers.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                                child: Center(
+                                  child: Text('No ${_spaceNoun(act, plural: true)} available for this date yet.',
+                                      textAlign: TextAlign.center, style: T.caption),
+                                ),
+                              ),
                             ..._tiers.map((tier) {
                               final active = _selectedTier == tier;
                               final count = _baysOfTier(tier).length;

@@ -56,7 +56,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       backgroundColor: AppColors.surfaceAlt,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, bottomSafePad(ctx, extra: AppSpacing.lg)),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Pay for guests’ food · ${rupees(_unpaidTotal)}', style: T.h2),
           const SizedBox(height: AppSpacing.lg),
@@ -138,7 +138,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       backgroundColor: AppColors.surfaceAlt,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, bottomSafePad(ctx, extra: AppSpacing.lg)),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Invite guests', style: T.h2),
           const SizedBox(height: 6),
