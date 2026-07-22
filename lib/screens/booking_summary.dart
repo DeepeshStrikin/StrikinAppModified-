@@ -238,12 +238,45 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   // Cancellation policy not finalised yet — surfaced as "coming soon".
-  void _cancel() => _toast('Cancellation is coming soon.');
+  Future<void> _cancel() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceAlt,
+        title: const Text('Cancel this booking?', style: TextStyle(color: AppColors.text)),
+        content: const Text(
+          'This releases your slot. Bookings can only be cancelled up to 1 hour before the slot.',
+          style: TextStyle(color: AppColors.textMuted),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep booking')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancel booking', style: TextStyle(color: AppColors.danger))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy = true);
+    try {
+      final done = await Api.cancelBooking(b.id);
+      if (!mounted) return;
+      if (done) {
+        _toast('Booking cancelled');
+        Navigator.of(context).pop(); // back to the list, which refreshes on show
+      } else {
+        _toast('Could not cancel. Please try again.');
+      }
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final expired = bookingIsExpired(b);
     final cancellable = b.status == 'upcoming' && !expired;
+    final canCancel = bookingCancellable(b); // upcoming AND > 1h before the slot
     final hostPaid = _game?['hostPaid'] == true;
     return AppScaffold(
       child: Column(
@@ -426,10 +459,15 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           const SizedBox(height: AppSpacing.sm),
           AppButton('Manage invites', variant: 'secondary', onPressed: _busy ? null : _manageInvites),
 
-          if (cancellable) ...[
+          if (canCancel) ...[
             const SizedBox(height: AppSpacing.sm),
-            // Cancellation policy not finalised yet — surface as coming soon.
-            AppButton('Cancel booking (coming soon)', variant: 'secondary', onPressed: _cancel),
+            AppButton('Cancel booking', variant: 'secondary', onPressed: _busy ? null : _cancel),
+          ] else if (cancellable) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const Center(
+              child: Text("Bookings can't be cancelled within 1 hour of the slot.",
+                  textAlign: TextAlign.center, style: T.caption),
+            ),
           ],
           const SizedBox(height: AppSpacing.xxl),
         ],

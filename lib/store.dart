@@ -55,6 +55,21 @@ String bookingEffectiveLabel(MyBooking b) =>
 String bookingEffectiveTone(MyBooking b) =>
     bookingIsExpired(b) ? 'neutral' : bookingStatusTone(b.status);
 
+/// How long before the slot a booking can still be cancelled.
+const cancellationCutoff = Duration(hours: 1);
+
+/// A booking can be cancelled only while it's still upcoming AND its slot is
+/// more than [cancellationCutoff] away. Inside the final hour (or once the slot
+/// has started/passed) cancellation is locked. The server enforces the same
+/// rule — this just keeps the button honest.
+bool bookingCancellable(MyBooking b) {
+  if (b.status != 'upcoming') return false;
+  final t = b.time.contains(':') ? b.time : '23:59';
+  final dt = DateTime.tryParse('${b.date}T$t:00');
+  if (dt == null) return false;
+  return dt.difference(DateTime.now()) > cancellationCutoff;
+}
+
 /// A booking the user has actually made (kept per-user, persisted locally,
 /// also stored server-side in the cloud DB).
 class MyBooking {
